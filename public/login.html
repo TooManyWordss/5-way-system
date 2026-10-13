@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Café Ambiente · Log in</title>
+  <meta name="theme-color" content="#6a3b1f">
+  <link rel="icon" href="/brand/icon-192.png">
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-page">
+  <main class="login">
+    <div class="login-card">
+      <span class="logo large" role="img" aria-label="Café Ambiente logo"></span>
+      <h1 id="title">Log in</h1>
+
+      <!-- Face ID / Touch ID / fingerprint -->
+      <div id="passkey-area" class="passkey-area" hidden>
+        <button id="passkey-login" class="btn primary bio-btn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a8 8 0 0 0-8 8v1m16 0v-1a8 8 0 0 0-3-6.2M8 20.5c1.3-1.9 2-4.2 2-6.5v-3a2 2 0 0 1 4 0v1m0 4c0 2-.4 3.9-1.2 5.6M6.5 17.5c.9-1.6 1.5-3.4 1.5-5.5v-1a4 4 0 0 1 7.5-2m2.3 3.5c.1.5.2 1 .2 1.5 0 2.5-.5 4.8-1.5 7"/></svg>
+          <span>Sign in with Face ID / fingerprint</span>
+        </button>
+        <button id="show-setup" class="link" type="button">First time on this device? Set it up</button>
+      </div>
+
+      <form id="setup-form" class="setup-form" hidden novalidate>
+        <label for="setup-code">Setup code from the owner</label>
+        <input id="setup-code" inputmode="numeric" autocomplete="one-time-code" maxlength="9" placeholder="8 digits">
+        <button class="btn primary" type="submit">Set up Face ID / fingerprint</button>
+        <button id="hide-setup" class="link" type="button">Back</button>
+      </form>
+
+      <p id="or" class="or" hidden><span>or</span></p>
+
+      <form id="form" class="pin-form">
+        <label for="secret" id="label">PIN</label>
+        <input id="secret" type="password" autocomplete="current-password" required>
+        <button class="btn" type="submit" id="pin-submit">Open</button>
+      </form>
+
+      <p id="status" class="status error" role="alert"></p>
+      <p id="https-note" class="hint" hidden>Face ID and fingerprint sign-in only work on the secure (https) address.</p>
+    </div>
+  </main>
+
+  <script src="/vendor/webauthn.js"></script>
+  <script>
+    const SCREENS = {
+      pos: { title: 'POS', label: 'PIN', numeric: true },
+      barista: { title: 'Barista', label: 'PIN', numeric: true },
+      kitchen: { title: 'Kitchen display', label: 'PIN', numeric: true },
+      inventory: { title: 'Inventory', label: 'PIN', numeric: true },
+      admin: { title: 'Admin panel', label: 'Password', numeric: false },
+    };
+    const role = SCREENS[new URLSearchParams(location.search).get('role')] ? new URLSearchParams(location.search).get('role') : 'admin';
+    const screen = SCREENS[role];
+    const $ = (id) => document.getElementById(id);
+    const input = $('secret');
+    const status = $('status');
+
+    $('title').textContent = screen.title;
+    $('label').textContent = screen.label;
+    if (screen.numeric) input.inputMode = 'numeric'; // number pad on the iPad
+
+    async function post(path, body) {
+      const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Something went wrong');
+      return data;
+    }
+
+    // A short name for this device, shown to the owner ("iPad", "iPhone"…).
+    function deviceName() {
+      const ua = navigator.userAgent;
+      if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
+      if (/iPhone/.test(ua)) return 'iPhone';
+      if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
+      if (/Macintosh/.test(ua)) return 'Mac';
+      if (/Windows/.test(ua)) return 'Windows PC';
+      return 'Device';
+    }
+
+    // The device cancelled or timed out: say so plainly instead of a technical error.
+    function passkeyError(err) {
+      if (err.name === 'NotAllowedError') return 'Cancelled, or no fingerprint / Face ID sign-in is set up on this device.';
+      if (err.name === 'InvalidStateError') return 'This device is already set up for this person.';
+      return err.message;
+    }
+
+    // ----- PIN or password -----
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      status.textContent = '';
+      try {
+        location.replace((await post('/api/login', { role, secret: input.value })).home);
+      } catch (err) {
+        status.textContent = err.message;
+        input.select();
+      }
+    });
+
+    // ----- Face ID / fingerprint -----
+    const canUsePasskeys = window.isSecureContext && window.PublicKeyCredential && window.SimpleWebAuthnBrowser;
+
+    $('passkey-login').addEventListener('click', async () => {
+      status.textContent = '';
+      try {
+        const { options, challengeId } = await post('/api/passkeys/login/options');
+        const response = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON: options });
+        location.replace((await post('/api/passkeys/login', { challengeId, response, role })).home);
+      } catch (err) {
+        status.textContent = passkeyError(err);
+      }
+    });
+
+    function showSetup(show) {
+      $('setup-form').hidden = !show;
+      $('passkey-area').hidden = show;
+      status.textContent = '';
+      if (show) $('setup-code').focus();
+    }
+    $('show-setup').addEventListener('click', () => showSetup(true));
+    $('hide-setup').addEventListener('click', () => showSetup(false));
+
+    $('setup-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      status.textContent = '';
+      try {
+        const { options, challengeId } = await post('/api/passkeys/setup', { code: $('setup-code').value });
+        const response = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON: options });
+        location.replace((await post('/api/passkeys/register', { challengeId, response, device: deviceName() })).home);
+      } catch (err) {
+        status.textContent = passkeyError(err);
+      }
+    });
+
+    // Show what this screen allows: Face ID / fingerprint, the PIN, or both.
+    (async () => {
+      let allowed = { pin: true, passkeys: false };
+      try { allowed = await (await fetch(`/api/login-options?role=${role}`)).json(); } catch {}
+      const passkeys = canUsePasskeys && (role !== 'admin' || allowed.passkeys); // staff screens always offer setup
+      $('passkey-area').hidden = !passkeys;
+      $('show-setup').hidden = role === 'admin'; // the owner sets up from the admin panel
+      $('form').hidden = !allowed.pin;
+      $('or').hidden = !(passkeys && allowed.pin);
+      $('https-note').hidden = canUsePasskeys || allowed.pin;
+      if (passkeys) $('pin-submit').classList.remove('primary');
+      else $('pin-submit').classList.add('primary');
+      if (!passkeys && allowed.pin) input.focus();
+      if (!allowed.pin && !canUsePasskeys) status.textContent = 'PIN sign-in is turned off and this address does not allow fingerprint / Face ID. Use the https address.';
+    })();
+  </script>
+</body>
+</html>

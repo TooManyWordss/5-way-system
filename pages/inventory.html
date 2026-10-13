@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/inventory.webmanifest">
+  <title>Café Ambiente · Inventory</title>
+  <meta name="theme-color" content="#6a3b1f">
+  <link rel="icon" href="/brand/icon-192.png">
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="stock-page">
+  <header class="topbar photo">
+    <div class="brand">
+      <span class="logo mark" role="img" aria-label="Café Ambiente logo"></span>
+      <div>
+        <div class="brand-name">Café Ambiente</div>
+        <div class="brand-sub">Inventory <span id="who"></span></div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="conn" class="badge">Connecting…</span>
+      <button id="logout" class="btn ghost small" onclick="logout()">Log out</button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <main class="stock">
+    <div class="stock-tools">
+      <input id="search" class="search" type="search" placeholder="Find an item" autocomplete="off" aria-label="Find an item">
+      <button id="add" class="btn primary">+ Add item</button>
+    </div>
+    <p class="hint">Tap an item to count it, add a delivery, or take out what was used or thrown away. Anything below its reorder level goes on the owner's buying list.</p>
+    <div id="list" class="stock-list"></div>
+  </main>
+
+  <!-- Update one item's stock -->
+  <dialog id="stock-dialog" class="sheet" aria-labelledby="stock-title">
+    <form id="stock-form" novalidate>
+      <h2 id="stock-title"></h2>
+      <p id="stock-now" class="hint"></p>
+      <div class="stock-kinds" role="radiogroup" aria-label="What happened">
+        <label><input type="radio" name="kind" value="count" checked><span>Count<small>How much is there now</small></span></label>
+        <label><input type="radio" name="kind" value="received"><span>Received<small>A delivery came in</small></span></label>
+        <label><input type="radio" name="kind" value="used"><span>Used / wasted<small>Take some out</small></span></label>
+      </div>
+      <label><span id="amount-label">Amount</span>
+        <span class="amount-row"><input name="amount" inputmode="decimal" autocomplete="off" required><span id="unit"></span></span>
+      </label>
+      <p id="stock-after" class="hint"></p>
+      <label>Note (optional) <input name="note" maxlength="140" autocomplete="off" placeholder="e.g. spilled, from supplier"></label>
+      <p id="stock-error" class="status error" role="alert"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- New item -->
+  <dialog id="add-dialog" class="sheet" aria-labelledby="add-title">
+    <form id="add-form" novalidate>
+      <h2 id="add-title">New stock item</h2>
+      <label>Name <input name="name" required maxlength="60" autocomplete="off" placeholder="e.g. Espresso beans"></label>
+      <label>Unit <input name="unit" required maxlength="20" list="unit-options" autocomplete="off" placeholder="kg, L, pcs, packs…"></label>
+      <datalist id="unit-options"></datalist>
+      <label>In stock now <input name="quantity" inputmode="decimal" required autocomplete="off"></label>
+      <label>Reorder when below <input name="threshold" inputmode="decimal" required autocomplete="off"></label>
+      <p id="add-error" class="status error" role="alert"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Add item</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script>
+    const socket = io();
+    showConnection(socket, document.getElementById('conn'));
+    const $ = (id) => document.getElementById(id);
+
+    let items = [];
+    let current = null; // item being updated
+
+    // "2.5", "1,000" -> number; NaN if not a plain non-negative amount.
+    const parseQty = (text) => {
+      const t = String(text).replace(/,/g, '').trim();
+      return /^\d*\.?\d+$/.test(t) ? Number(t) : NaN;
+    };
+    const qty = (n) => Number(n.toFixed(3)).toLocaleString('en-PH', { maximumFractionDigits: 3 });
+
+    function showToast(text) {
+      $('toast').textContent = text;
+      $('toast').hidden = false;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => ($('toast').hidden = true), 5000);
+    }
+
+    // Show who is signed in. With personal sign-in, "Switch" hands the tablet to the next person.
+    api('/api/me').then((me) => {
+      if (!me.name) return;
+      $('who').textContent = `· ${me.name}`;
+      $('logout').textContent = 'Switch';
+    }).catch(() => {});
+
+    function render() {
+      const query = $('search').value.trim().toLowerCase();
+      const shown = items.filter((i) => !query || i.name.toLowerCase().includes(query));
+      // Low items first, so they're easy to spot.
+      shown.sort((a, b) => (b.low - a.low) || a.name.localeCompare(b.name));
+      $('list').innerHTML = shown.length
+        ? shown.map((i) => `
+            <button class="stock-item${i.low ? ' low' : ''}" data-id="${i.id}">
+              <span class="si-name">${esc(i.name)}</span>
+              <span class="si-qty">${qty(i.quantity)} <small>${esc(i.unit)}</small></span>
+              <span class="si-meta">${i.low ? '<span class="pill void">Low – reorder</span> ' : ''}reorder below ${qty(i.threshold)} ${esc(i.unit)}
+                · ${esc(i.updated_by ?? '')} ${timeOf(i.updated_at)}</span>
+            </button>`).join('')
+        : `<p class="empty">${items.length ? 'No items match' : 'No stock items yet. Tap “+ Add item” to start.'}</p>`;
+    }
+
+    async function load() {
+      try {
+        items = await api('/api/inventory');
+        render();
+      } catch {}
+    }
+    $('search').addEventListener('input', render);
+
+    // ----- Update stock -----
+    const form = $('stock-form');
+
+    function preview() {
+      const amount = parseQty(form.amount.value);
+      const kind = form.kind.value;
+      $('amount-label').textContent = kind === 'count' ? 'Counted' : kind === 'received' ? 'Amount received' : 'Amount used or wasted';
+      if (!Number.isFinite(amount)) return ($('stock-after').textContent = '');
+      const after = kind === 'count' ? amount : kind === 'received' ? current.quantity + amount : current.quantity - amount;
+      $('stock-after').textContent = after < 0 ? 'That is more than is recorded. Do a count instead.'
+        : `Will be ${qty(after)} ${current.unit}${after < current.threshold ? ' · below the reorder level, the owner will be told' : ''}`;
+    }
+
+    $('list').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-id]');
+      if (!button) return;
+      current = items.find((i) => i.id === Number(button.dataset.id));
+      form.reset();
+      $('stock-error').textContent = '';
+      $('stock-title').textContent = current.name;
+      $('stock-now').textContent = `Recorded: ${qty(current.quantity)} ${current.unit} · reorder below ${qty(current.threshold)} ${current.unit}`;
+      $('unit').textContent = current.unit;
+      preview();
+      $('stock-dialog').showModal();
+      form.amount.focus();
+    });
+    form.addEventListener('input', preview);
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const amount = parseQty(form.amount.value);
+      if (!Number.isFinite(amount)) return ($('stock-error').textContent = 'Enter an amount, e.g. 2 or 1.5');
+      const submit = form.querySelector('[type=submit]');
+      submit.disabled = true;
+      try {
+        const item = await api(`/api/inventory/${current.id}/stock`, {
+          method: 'POST', body: { kind: form.kind.value, amount, note: form.note.value },
+        });
+        $('stock-dialog').close();
+        showToast(`${item.name}: ${qty(item.quantity)} ${item.unit}${item.low ? ' · low, added to the buying list' : ''}`);
+        load();
+      } catch (err) {
+        $('stock-error').textContent = err.status ? err.message : 'No connection. Try again when the internet is back.';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    // ----- Add an item -----
+    const addForm = $('add-form');
+    $('add').addEventListener('click', () => {
+      addForm.reset();
+      $('add-error').textContent = '';
+      $('unit-options').innerHTML = [...new Set(['kg', 'g', 'L', 'mL', 'pcs', 'packs', 'bottles', ...items.map((i) => i.unit)])]
+        .map((u) => `<option value="${esc(u)}">`).join('');
+      if ($('search').value.trim()) addForm.name.value = $('search').value.trim();
+      $('add-dialog').showModal();
+      addForm.name.focus();
+    });
+    addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const quantity = parseQty(addForm.quantity.value);
+      const threshold = parseQty(addForm.threshold.value);
+      if (!addForm.name.value.trim() || !addForm.unit.value.trim()) return ($('add-error').textContent = 'Fill in the name and unit.');
+      if (!Number.isFinite(quantity)) return ($('add-error').textContent = 'Enter how much is in stock now.');
+      if (!Number.isFinite(threshold)) return ($('add-error').textContent = 'Enter the level to reorder at.');
+      const submit = addForm.querySelector('[type=submit]');
+      submit.disabled = true;
+      try {
+        const item = await api('/api/inventory/items', {
+          method: 'POST', body: { name: addForm.name.value.trim(), unit: addForm.unit.value.trim(), quantity, threshold },
+        });
+        $('add-dialog').close();
+        $('search').value = '';
+        showToast(`Added ${item.name}`);
+        load();
+      } catch (err) {
+        $('add-error').textContent = err.status ? err.message : 'No connection. Try again when the internet is back.';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
+
+    socket.on('connect', load);
+    socket.on('inventory.updated', load); // someone else changed the stock
+  </script>
+</body>
+</html>

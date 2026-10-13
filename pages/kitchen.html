@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/kitchen.webmanifest">
+  <title>Café Ambiente · Kitchen</title>
+  <meta name="theme-color" content="#6a3b1f">
+  <link rel="icon" href="/brand/icon-192.png">
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="kitchen">
+  <header class="topbar photo">
+    <div class="brand">
+      <span class="logo mark" role="img" aria-label="Café Ambiente logo"></span>
+      <div>
+        <div class="brand-name">Café Ambiente</div>
+        <div class="brand-sub">Kitchen <span id="count" class="badge"></span></div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="conn" class="badge">Connecting…</span>
+      <button class="btn ghost small" onclick="logout()">Log out</button>
+    </div>
+  </header>
+
+  <div id="offline" class="offline-banner" hidden>Connection lost – new orders will not appear until it's back</div>
+
+  <main id="tickets" class="tickets"></main>
+
+  <!-- Browsers only allow sound after a tap, so the screen starts with one. -->
+  <button id="start" class="start-overlay">
+    <span class="logo large" aria-hidden="true"></span>
+    <strong>Tap to start kitchen display</strong>
+    <span>Turns on the new-order chime and keeps the screen awake</span>
+  </button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script>
+    const LATE_AFTER_MINUTES = 10;
+
+    const socket = io();
+    showConnection(socket, document.getElementById('conn'), (live) => {
+      document.getElementById('offline').hidden = live;
+    });
+
+    // ----- Chime, full screen and screen-awake -----
+    let audio = null;
+
+    function chime() {
+      if (!audio) return;
+      const now = audio.currentTime;
+      [880, 1175].forEach((freq, i) => {
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, now + i * 0.18);
+        gain.gain.exponentialRampToValueAtTime(0.4, now + i * 0.18 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.18 + 0.35);
+        osc.connect(gain).connect(audio.destination);
+        osc.start(now + i * 0.18);
+        osc.stop(now + i * 0.18 + 0.4);
+      });
+    }
+
+    // Wake Lock only works over HTTPS; on plain http set the device to never sleep instead.
+    let wakeLock = null;
+    async function keepAwake() {
+      try {
+        wakeLock = await navigator.wakeLock?.request('screen');
+      } catch {}
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && audio) keepAwake();
+    });
+
+    document.getElementById('start').addEventListener('click', (e) => {
+      audio = new (window.AudioContext || window.webkitAudioContext)();
+      chime();
+      keepAwake();
+      const root = document.documentElement;
+      (root.requestFullscreen || root.webkitRequestFullscreen)?.call(root)?.catch?.(() => {});
+      e.currentTarget.remove();
+    });
+
+    const tickets = new Map(); // order id -> order
+    const els = { tickets: document.getElementById('tickets'), count: document.getElementById('count') };
+
+    function isOpen(order) {
+      return order.kitchen_status === 'new' || order.kitchen_status === 'preparing';
+    }
+
+    function render() {
+      const open = [...tickets.values()].sort((a, b) => a.id - b.id); // oldest first
+      els.count.textContent = `${open.length} open`;
+      if (open.length === 0) {
+        els.tickets.innerHTML = '<div class="kitchen-empty"><span class="logo large" aria-hidden="true"></span><p>No open tickets</p></div>';
+        return;
+      }
+      els.tickets.innerHTML = open.map((order) => {
+        const minutes = Math.floor((Date.now() - new Date(order.created_at)) / 60000);
+        const late = minutes >= LATE_AFTER_MINUTES;
+        const items = order.items.filter((i) => i.sends_to_kitchen);
+        const next = order.kitchen_status === 'new'
+          ? { status: 'preparing', label: 'Start' }
+          : { status: 'ready', label: 'Done' };
+        return `
+          <article class="ticket ${order.kitchen_status} ${late ? 'late' : ''}">
+            <div class="ticket-head">
+              <h2>#${order.receipt_label ?? order.receipt_no}</h2>
+              <span class="ticket-age">${minutes} min · ${timeOf(order.created_at)}</span>
+            </div>
+            <div class="ticket-state">${order.kitchen_status === 'new' ? 'New' : 'Preparing'}${order.edit_count ? ' <span class="edited-tag">Edited</span>' : ''}</div>
+            <ul>
+              ${items.map((i) => `<li><span class="q">${i.qty}×</span>${esc(i.name)}</li>`).join('')}
+            </ul>
+            <button class="btn ${next.status === 'ready' ? 'primary' : ''}"
+                    data-id="${order.id}" data-status="${next.status}">${next.label}</button>
+          </article>`;
+      }).join('');
+    }
+
+    async function loadTickets() {
+      try {
+        const list = await api('/api/kitchen/tickets');
+        tickets.clear();
+        for (const order of list) tickets.set(order.id, order);
+        render();
+      } catch (err) {
+        els.tickets.innerHTML = `<p class="empty">Could not load tickets: ${esc(err.message)}</p>`;
+      }
+    }
+
+    // Reload everything on every (re)connect so nothing is missed while offline.
+    socket.on('connect', loadTickets);
+
+    socket.on('order.created', (order) => {
+      if (!isOpen(order)) return; // drinks-only orders skip the kitchen
+      tickets.set(order.id, order);
+      render();
+      chime();
+    });
+
+    // A receipt was edited or voided at the POS.
+    socket.on('order.updated', (order) => {
+      const wasOpen = tickets.has(order.id);
+      if (isOpen(order) && order.status !== 'voided') tickets.set(order.id, order);
+      else tickets.delete(order.id);
+      render();
+      if (isOpen(order) || wasOpen) chime();
+    });
+
+    socket.on('ticket.updated', (order) => {
+      if (isOpen(order)) tickets.set(order.id, order);
+      else tickets.delete(order.id);
+      render();
+    });
+
+    els.tickets.addEventListener('click', async (e) => {
+      const button = e.target.closest('[data-status]');
+      if (!button) return;
+      button.disabled = true;
+      try {
+        // The server broadcasts ticket.updated, which re-renders every kitchen screen.
+        await api(`/api/orders/${button.dataset.id}/kitchen`, {
+          method: 'PATCH',
+          body: { status: button.dataset.status },
+        });
+      } catch (err) {
+        button.disabled = false;
+        alert(`Could not update ticket: ${err.message}`);
+      }
+    });
+
+    setInterval(render, 30000); // keep the "minutes waiting" counters fresh
+  </script>
+</body>
+</html>

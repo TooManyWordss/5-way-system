@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/pos.webmanifest">
+  <title>Café Ambiente · POS</title>
+  <meta name="theme-color" content="#6a3b1f">
+  <link rel="icon" href="/brand/icon-192.png">
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="pos" data-view="menu">
+  <div class="pos-app">
+    <section class="pos-main">
+      <header class="pos-head">
+        <span class="logo mark" role="img" aria-label="Café Ambiente"></span>
+        <span id="station-name" class="station-name" hidden>Barista</span>
+        <nav class="views" aria-label="POS sections">
+          <button class="view-tab active" data-view="menu">Menu</button>
+          <button class="view-tab" data-view="receipts">Receipts</button>
+          <button class="view-tab" data-view="today">Today</button>
+        </nav>
+        <div class="head-right">
+          <button id="new-item" class="link">+ New item</button>
+          <button id="printer-settings" class="link">Printer</button>
+          <span id="conn" class="badge">Connecting…</span>
+          <span id="who" class="who" hidden></span>
+          <button id="logout" class="link" onclick="logout()">Log out</button>
+        </div>
+      </header>
+
+      <!-- Menu -->
+      <div id="view-menu" class="view">
+        <div class="tools">
+          <input id="search" class="search" type="search" placeholder="Search the menu" autocomplete="off" aria-label="Search the menu">
+          <nav id="categories" class="categories" aria-label="Menu categories"></nav>
+          <button id="availability" class="btn small avail-toggle" aria-pressed="false">Availability</button>
+        </div>
+        <p id="avail-hint" class="avail-hint" hidden>Tap an item to mark it unavailable, or tap it again to make it available. Every till updates straight away.</p>
+        <div id="menu" class="menu-grid"></div>
+      </div>
+
+      <!-- Today's receipts: edit or void -->
+      <div id="view-receipts" class="view" hidden>
+        <div class="tools">
+          <input id="receipt-search" class="search" type="search" placeholder="Find a receipt number or item" autocomplete="off" aria-label="Find a receipt">
+        </div>
+        <div id="receipt-list" class="receipt-list"></div>
+      </div>
+
+      <!-- Today's numbers -->
+      <div id="view-today" class="view" hidden>
+        <div class="today">
+          <section id="today-tiles" class="tiles"></section>
+          <section class="panel">
+            <h2>Sold today</h2>
+            <table>
+              <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Sales</th></tr></thead>
+              <tbody id="sold-today"></tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <aside class="pos-cart">
+      <div class="cart-head">
+        <h2 id="cart-title">Order</h2>
+        <button id="clear" class="link">Clear</button>
+      </div>
+      <p id="edit-banner" class="edit-banner" hidden></p>
+      <ul id="cart-lines" class="cart-lines"></ul>
+      <div class="cart-foot">
+        <dl class="totals">
+          <dt class="tax-row">Subtotal</dt><dd class="tax-row" id="subtotal"></dd>
+          <dt class="tax-row">Tax</dt><dd class="tax-row" id="tax"></dd>
+          <dt class="grand">Total</dt><dd id="total" class="grand"></dd>
+        </dl>
+
+        <div id="pay-area" class="pay-area">
+          <div class="tender">
+            <label for="tendered">Cash received</label>
+            <button id="reset-tender" class="link">Reset</button>
+            <input id="tendered" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          </div>
+          <div id="quick-cash" class="quick-cash"></div>
+          <div class="change-row"><span id="change-label">Change</span><strong id="change">–</strong></div>
+          <button id="complete" class="btn primary big">Complete sale</button>
+        </div>
+
+        <div id="edit-area" class="pay-area" hidden>
+          <div class="change-row"><span id="diff-label"></span><strong id="diff"></strong></div>
+          <div class="edit-buttons">
+            <button id="cancel-edit" class="btn">Cancel</button>
+            <button id="save-edit" class="btn primary">Save changes</button>
+          </div>
+        </div>
+
+        <p id="status" class="status" role="status"></p>
+        <button id="print-last" class="btn print-btn" hidden>Print receipt</button>
+        <p id="pending" class="status warn" hidden></p>
+      </div>
+    </aside>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <dialog id="new-item-dialog" class="sheet" aria-labelledby="new-item-title">
+    <form id="new-item-form" novalidate>
+      <h2 id="new-item-title">New menu item</h2>
+      <p class="hint">The owner has to approve it before it can be sold.</p>
+      <label>Name <input name="name" required maxlength="60" autocomplete="off"></label>
+      <label>Category <input name="category" required maxlength="30" list="category-options" autocomplete="off"></label>
+      <datalist id="category-options"></datalist>
+      <label>Price <input name="price" required inputmode="decimal" placeholder="0.00" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" name="kitchen" checked> Kitchen prepares this</label>
+      <p id="new-item-error" class="status error" role="alert"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Send for approval</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="void-dialog" class="sheet" aria-labelledby="void-title">
+    <form id="void-form" novalidate>
+      <h2 id="void-title">Void receipt</h2>
+      <p id="void-summary" class="hint"></p>
+      <div class="reason-chips">
+        <button type="button" class="chip" data-reason="Customer changed their mind">Changed their mind</button>
+        <button type="button" class="chip" data-reason="Wrong order rung up">Wrong order</button>
+        <button type="button" class="chip" data-reason="Duplicate sale">Duplicate</button>
+      </div>
+      <label>Reason <input name="reason" required maxlength="200" autocomplete="off"></label>
+      <p id="void-error" class="status error" role="alert"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-close>Keep receipt</button>
+        <button type="submit" class="btn danger">Void receipt</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="printer-dialog" class="sheet" aria-labelledby="printer-title">
+    <form id="printer-form" method="dialog">
+      <h2 id="printer-title">Receipt printer</h2>
+      <p class="hint">Receipts print through this tablet's own printing (AirPrint on iPad). Pair the receipt printer with the tablet first, then pick it the first time the print screen opens.</p>
+      <fieldset class="paper-choice">
+        <legend>Paper width</legend>
+        <label class="check"><input type="radio" name="paper" value="80"> 80 mm</label>
+        <label class="check"><input type="radio" name="paper" value="58"> 58 mm</label>
+      </fieldset>
+      <label class="check"><input type="checkbox" name="auto"> Open the print screen after every sale</label>
+      <div class="sheet-actions">
+        <button type="button" id="test-print" class="btn ghost">Print a test receipt</button>
+        <button type="submit" class="btn primary">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Only this is printed; it's filled in just before printing. -->
+  <div id="print-receipt" class="print-receipt" aria-hidden="true"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script>
+    const socket = io();
+    showConnection(socket, document.getElementById('conn'));
+    const $ = (id) => document.getElementById(id);
+
+    // This page is both tills: /pos is the cashier, /barista the coffee bar. Each keeps its own
+    // receipts, numbering, saved offline sales and printer settings.
+    const STATION = location.pathname.startsWith('/barista') ? 'barista' : 'cashier';
+    const IS_BARISTA = STATION === 'barista';
+    if (IS_BARISTA) {
+      document.body.classList.add('barista');
+      document.title = 'Café Ambiente · Barista';
+      document.querySelector('link[rel=manifest]').href = '/barista.webmanifest';
+      $('station-name').hidden = false;
+    }
+    const STORE = IS_BARISTA ? 'barista' : 'pos';
+    const MENU_KEY = `${STORE}.menu`;
+    const PENDING_KEY = `${STORE}.pendingOrders`;
+    const label = (o) => o.receipt_label ?? o.receipt_no; // "1024" at the cashier, "B-0012" at the bar
+
+    function readSaved(key, fallback) {
+      try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+    }
+    function save(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+    }
+
+    function showToast(text) {
+      const toast = $('toast');
+      toast.textContent = text;
+      toast.hidden = false;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => (toast.hidden = true), 7000);
+    }
+
+    function setStatus(text, kind = '') {
+      $('status').textContent = text;
+      $('status').className = 'status ' + kind;
+    }
+
+    function newClientId() {
+      return typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : Date.now().toString(36) + Math.random().toString(36).slice(2);
+    }
+
+    // ===== State =====
+    let menu = [];
+    let pendingItems = [];  // added from the POS, waiting for the owner
+    let taxRate = 0;
+    const cart = new Map(); // menu item id -> quantity
+    let tenderedCents = 0;
+    let activeCategory = 'All';
+    let availabilityMode = false; // tapping an item flips it between available and unavailable
+    const UNAVAILABLE = 'Unavailable'; // extra category chip listing everything marked unavailable
+    let editing = null;     // { order, savedCart } while changing an existing receipt
+    let today = null;       // /api/pos/today
+    let receiptInfo = { name: 'Café Ambiente', header: [], footer: [] }; // from the server, with the menu (each till has its own)
+    let cashierName = null; // set when signed in with their own Face ID / fingerprint
+
+    // Sales rung up while the internet is down. They stay on this iPad until
+    // the server confirms them. Each has a clientId, so resending one that
+    // already got through never records it twice.
+    let pending = readSaved(PENDING_KEY, []);
+
+    // ===== Views =====
+    function showView(view) {
+      document.body.dataset.view = view;
+      for (const tab of document.querySelectorAll('.view-tab')) tab.classList.toggle('active', tab.dataset.view === view);
+      for (const name of ['menu', 'receipts', 'today']) $(`view-${name}`).hidden = name !== view;
+      if (view !== 'menu') loadToday();
+    }
+    document.querySelector('.views').addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-view]');
+      if (tab) showView(tab.dataset.view);
+    });
+
+    // ===== Menu =====
+    function renderMenu() {
+      const unavailableCount = menu.filter((item) => !item.available).length;
+      const categories = ['All', ...new Set([...menu, ...pendingItems].map((item) => item.category))];
+      if (unavailableCount) categories.push(UNAVAILABLE);
+      if (!categories.includes(activeCategory)) activeCategory = 'All';
+      const query = $('search').value.trim().toLowerCase();
+
+      $('categories').innerHTML = categories
+        .map((c) => `<button class="chip${!query && c === activeCategory ? ' active' : ''}${c === UNAVAILABLE ? ' unavailable-chip' : ''}" data-category="${esc(c)}">${esc(c)}${c === UNAVAILABLE ? ` (${unavailableCount})` : ''}</button>`)
+        .join('');
+
+      // A search looks through every category.
+      const shows = (item) => query
+        ? item.name.toLowerCase().includes(query)
+        : activeCategory === UNAVAILABLE ? !item.available
+        : activeCategory === 'All' || item.category === activeCategory;
+      const html =
+        menu.filter(shows).map((item) => `
+          <button class="menu-item${item.available ? '' : ' unavailable'}${availabilityMode ? ' avail-mode' : ''}" data-id="${item.id}">
+            <span class="name">${esc(item.name)}</span>
+            <span class="price">${!item.available ? 'Unavailable'
+              : availabilityMode ? 'Available' : money(item.price_cents)}</span>
+          </button>`).join('') +
+        (activeCategory === UNAVAILABLE && !query ? '' : pendingItems.filter(shows).map((item) => `
+          <div class="menu-item pending" aria-disabled="true">
+            <span class="name">${esc(item.name)}</span>
+            <span class="price">Awaiting approval</span>
+          </div>`).join(''));
+      $('menu').innerHTML = html || `<p class="empty grid-empty">No items match “${esc($('search').value.trim())}”</p>`;
+    }
+
+    $('categories').addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-category]');
+      if (!chip) return;
+      activeCategory = chip.dataset.category;
+      $('search').value = '';
+      renderMenu();
+    });
+    $('search').addEventListener('input', renderMenu);
+
+    $('menu').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-id]');
+      if (!button) return;
+      const item = menu.find((m) => m.id === Number(button.dataset.id));
+      if (availabilityMode) setAvailable(item, !item.available);
+      else if (!item.available && !onReceipt(item.id)) {
+        if (confirm(`${item.name} is marked unavailable. Make it available again?`)) setAvailable(item, true);
+      } else changeQty(item.id, 1);
+    });
+
+    // ===== Availability: mark items unavailable (sold out) and back =====
+    async function setAvailable(item, available) {
+      try {
+        await api(`/api/menu/${item.id}/availability`, { method: 'POST', body: { available } });
+        item.available = available ? 1 : 0;
+        showToast(`${item.name} is now ${available ? 'available' : 'unavailable'}`);
+        if (!available && !editing && cart.delete(item.id)) renderCart();
+        renderMenu();
+      } catch (err) {
+        showToast(err.status ? err.message : 'No connection. Availability can only be changed online.');
+      }
+    }
+
+    function setAvailabilityMode(on) {
+      availabilityMode = on;
+      $('availability').textContent = on ? 'Done' : 'Availability';
+      $('availability').classList.toggle('primary', on);
+      $('availability').setAttribute('aria-pressed', String(on));
+      $('avail-hint').hidden = !on;
+      renderMenu();
+    }
+    $('availability').addEventListener('click', () => setAvailabilityMode(!availabilityMode));
+
+    // While editing a receipt, items already on it can still be changed even if now unavailable.
+    const onReceipt = (id) => !!editing?.order.items.some((i) => i.menu_item_id === id);
+
+    // Name and price for a cart line. While editing, items already on the
+    // receipt keep the price they were sold at (the server does the same).
+    function itemInfo(id) {
+      const original = editing?.order.items.find((i) => i.menu_item_id === id);
+      if (original) return { id, name: original.name, price_cents: original.unit_price_cents };
+      return menu.find((m) => m.id === id);
+    }
+
+    // ===== Cart and payment =====
+    function changeQty(id, delta) {
+      const item = menu.find((m) => m.id === id);
+      if (delta > 0 && item && !item.available && !onReceipt(id)) {
+        return showToast(`${item.name} is marked unavailable`);
+      }
+      const qty = (cart.get(id) || 0) + delta;
+      if (qty > 0) cart.set(id, qty);
+      else cart.delete(id);
+      setStatus('');
+      renderCart();
+    }
+
+    function cartTotals() {
+      const lines = [...cart].map(([id, qty]) => ({ item: itemInfo(id), qty })).filter((l) => l.item);
+      const subtotal = lines.reduce((sum, { item, qty }) => sum + item.price_cents * qty, 0);
+      const tax = Math.round(subtotal * taxRate); // same rounding as the server
+      return { lines, subtotal, tax, total: subtotal + tax };
+    }
+
+    function renderCart() {
+      const { lines, subtotal, tax, total } = cartTotals();
+      $('cart-lines').innerHTML = lines.length
+        ? lines.map(({ item, qty }) => `
+            <li class="cart-line">
+              <span class="line-name">${esc(item.name)}</span>
+              <span class="line-total">${money(item.price_cents * qty)}</span>
+              <span class="qty">
+                <button data-id="${item.id}" data-delta="-1" aria-label="Remove one ${esc(item.name)}">−</button>
+                <span>${qty}</span>
+                <button data-id="${item.id}" data-delta="1" aria-label="Add one ${esc(item.name)}">+</button>
+              </span>
+            </li>`).join('')
+        : `<li class="cart-empty"><span class="logo mark" aria-hidden="true"></span>${editing ? 'Every item removed – use Void instead' : 'No items yet'}</li>`;
+
+      $('subtotal').textContent = money(subtotal);
+      $('tax').textContent = money(tax);
+      $('total').textContent = money(total);
+      document.querySelectorAll('.tax-row').forEach((el) => (el.hidden = taxRate === 0));
+
+      $('cart-title').textContent = editing ? `Editing #${label(editing.order)}` : 'Order';
+      $('edit-banner').hidden = !editing;
+      $('pay-area').hidden = !!editing;
+      $('edit-area').hidden = !editing;
+      $('clear').hidden = !!editing;
+
+      if (editing) {
+        const diff = total - editing.order.total_cents;
+        $('edit-banner').textContent = `Was ${money(editing.order.total_cents)} · paid ${timeOf(editing.order.created_at)}`;
+        $('diff-label').textContent = diff > 0 ? 'Collect from customer' : diff < 0 ? 'Give back to customer' : 'Total unchanged';
+        $('diff').textContent = diff ? money(Math.abs(diff)) : '';
+        $('save-edit').disabled = lines.length === 0;
+        return;
+      }
+
+      // Change due, or how much is still missing.
+      if (document.activeElement !== $('tendered')) $('tendered').value = tenderedCents ? (tenderedCents / 100).toFixed(2) : '';
+      const change = tenderedCents - total;
+      $('change-label').textContent = tenderedCents && change < 0 ? 'Still needed' : 'Change';
+      $('change').textContent = tenderedCents && lines.length ? money(Math.abs(change)) : '–';
+      $('change').className = tenderedCents && change < 0 ? 'short' : '';
+      $('complete').disabled = lines.length === 0 || tenderedCents < total;
+    }
+
+    $('cart-lines').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-delta]');
+      if (button) changeQty(Number(button.dataset.id), Number(button.dataset.delta));
+    });
+    $('clear').addEventListener('click', () => {
+      cart.clear();
+      tenderedCents = 0;
+      setStatus('');
+      renderCart();
+    });
+
+    // Quick cash: each tap adds that bill or coin to the cash received.
+    $('quick-cash').innerHTML =
+      [...DENOMINATIONS].reverse().map((d) => `<button class="cash-btn" data-add="${d * 100}">₱${d.toLocaleString('en-PH')}</button>`).join('') +
+      '<button class="cash-btn exact" data-exact>Exact</button>';
+    $('quick-cash').addEventListener('click', (e) => {
+      const button = e.target.closest('button');
+      if (!button) return;
+      tenderedCents = button.hasAttribute('data-exact') ? cartTotals().total : tenderedCents + Number(button.dataset.add);
+      renderCart();
+    });
+    $('tendered').addEventListener('input', () => {
+      const cents = parseMoney($('tendered').value);
+      tenderedCents = Number.isFinite(cents) ? cents : 0;
+      renderCart();
+    });
+    $('tendered').addEventListener('blur', renderCart);
+    $('reset-tender').addEventListener('click', () => {
+      tenderedCents = 0;
+      renderCart();
+    });
+
+    function renderPending() {
+      const rejected = pending.filter((o) => o.error);
+      $('pending').hidden = pending.length === 0;
+      $('pending').textContent = rejected.length
+        ? `${rejected.length} saved sale(s) were rejected by the server (${rejected[0].error}). Tell the owner.`
+        : `${pending.length} sale(s) saved on this iPad – they'll send automatically when the internet is back.`;
+    }
+
+    // "Couldn't reach the server" (no status, or a server/hosting error) is worth
+    // retrying later; "server said no" (400, 409…) is not.
+    const isConnectionProblem = (err) => !err.status || err.status >= 500;
+
+    $('complete').addEventListener('click', async () => {
+      const { total } = cartTotals();
+      if (cart.size === 0 || tenderedCents < total) return;
+      const order = {
+        clientId: newClientId(),
+        station: STATION,
+        createdAt: new Date().toISOString(),
+        cashTenderedCents: tenderedCents,
+        items: [...cart].map(([menuItemId, qty]) => ({ menuItemId, qty })),
+      };
+      const change = tenderedCents - total;
+      // What the printed receipt shows if the sale has to be saved offline.
+      const { lines, subtotal, tax } = cartTotals();
+      const draft = {
+        receipt_no: null, station: STATION, created_at: order.createdAt, subtotal_cents: subtotal, tax_cents: tax, total_cents: total,
+        cash_tendered_cents: tenderedCents, change_cents: change, staff_name: cashierName,
+        items: lines.map(({ item, qty }) => ({ name: item.name, qty, unit_price_cents: item.price_cents })),
+      };
+      cart.clear();
+      tenderedCents = 0;
+      renderCart(); // also disables the button, so a double tap can't send twice
+      setStatus('Sending…');
+      try {
+        const saved = await api('/api/orders', { method: 'POST', body: order });
+        setStatus(`Receipt #${label(saved)} · Change ${money(saved.change_cents ?? change)}`, 'ok big');
+        offerPrint(saved, printer.auto);
+      } catch (err) {
+        if (isConnectionProblem(err)) {
+          pending.push(order);
+          save(PENDING_KEY, pending);
+          renderPending();
+          setStatus(`Change ${money(change)} · No connection – sale saved. Tell the kitchen this order directly.`, 'warn');
+          offerPrint({ ...draft, offline: true }, printer.auto);
+        } else {
+          for (const { menuItemId, qty } of order.items) cart.set(menuItemId, qty); // put the order back
+          tenderedCents = order.cashTenderedCents;
+          renderCart();
+          setStatus(`Not sent: ${err.message}`, 'error');
+        }
+      }
+    });
+
+    let sendingPending = false;
+    async function sendPending() {
+      if (sendingPending || !pending.some((o) => !o.error)) return;
+      sendingPending = true;
+      try {
+        for (const order of pending.filter((o) => !o.error)) {
+          try {
+            await api('/api/orders', { method: 'POST', body: order });
+            pending = pending.filter((o) => o.clientId !== order.clientId);
+          } catch (err) {
+            if (isConnectionProblem(err)) break; // still offline; try again later
+            order.error = err.message;
+          }
+          save(PENDING_KEY, pending);
+        }
+      } finally {
+        sendingPending = false;
+        renderPending();
+      }
+    }
+    socket.on('connect', sendPending);
+    window.addEventListener('online', sendPending);
+    setInterval(sendPending, 20000);
+
+    // ===== Receipts: edit and void =====
+    function renderReceipts() {
+      const query = $('receipt-search').value.trim().toLowerCase().replace(/^#/, '');
+      const orders = (today?.orders ?? []).filter((o) =>
+        !query || String(label(o)).toLowerCase().includes(query) || o.items.some((i) => i.name.toLowerCase().includes(query))
+      );
+      if (!orders.length) {
+        $('receipt-list').innerHTML = `<p class="empty">${today?.orders.length ? 'No receipts match' : 'No receipts yet today'}</p>`;
+        return;
+      }
+      $('receipt-list').innerHTML = orders.map((o) => {
+        const voided = o.status === 'voided';
+        const meta = voided
+          ? `Voided ${timeOf(o.voided_at)} · ${esc(o.void_reason)}`
+          : o.cash_tendered_cents != null
+            ? `Cash ${money(o.cash_tendered_cents)} · change ${money(o.change_cents)}`
+            : esc(o.payment_method);
+        return `
+          <article class="receipt-card${voided ? ' voided' : ''}">
+            <div class="rc-head">
+              <strong>#${label(o)}</strong>
+              <span class="rc-time">${timeOf(o.created_at)}</span>
+              ${voided ? '<span class="pill void">Voided</span>' : ''}
+              ${o.edit_count ? `<span class="pill">Edited${o.edit_count > 1 ? ' ×' + o.edit_count : ''}</span>` : ''}
+              <span class="rc-total">${money(o.total_cents)}</span>
+            </div>
+            <div class="rc-items">${o.items.map((i) => `${i.qty}× ${esc(i.name)}`).join(' · ')}</div>
+            <div class="rc-foot">
+              <span class="rc-meta">${meta}</span>
+              <button class="btn small" data-print="${o.id}">Print</button>
+              ${voided ? '' : `
+                <button class="btn small" data-edit="${o.id}">Edit</button>
+                <button class="btn small danger-outline" data-void="${o.id}">Void</button>`}
+            </div>
+          </article>`;
+      }).join('');
+    }
+    $('receipt-search').addEventListener('input', renderReceipts);
+
+    $('receipt-list').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-edit], [data-void], [data-print]');
+      if (!button) return;
+      const order = today?.orders.find((o) => o.id === Number(button.dataset.edit ?? button.dataset.void ?? button.dataset.print));
+      if (!order) return;
+      if (button.dataset.print) printReceipt(order, { reprint: true });
+      else if (button.dataset.edit) startEdit(order);
+      else openVoid(order);
+    });
+
+    function startEdit(order) {
+      if (editing) finishEdit();
+      editing = { order, savedCart: { items: new Map(cart), tenderedCents } }; // keep any sale in progress
+      cart.clear();
+      for (const i of order.items) cart.set(i.menu_item_id, (cart.get(i.menu_item_id) ?? 0) + i.qty);
+      setStatus('Add or remove items, then save.');
+      showView('menu');
+      renderCart();
+    }
+
+    function finishEdit() {
+      cart.clear();
+      for (const [id, qty] of editing.savedCart.items) cart.set(id, qty);
+      tenderedCents = editing.savedCart.tenderedCents;
+      editing = null;
+      renderCart();
+    }
+
+    $('cancel-edit').addEventListener('click', () => {
+      finishEdit();
+      setStatus('');
+    });
+
+    $('save-edit').addEventListener('click', async () => {
+      $('save-edit').disabled = true;
+      try {
+        const { order, differenceCents } = await api(`/api/orders/${editing.order.id}`, {
+          method: 'PATCH',
+          body: { items: [...cart].map(([menuItemId, qty]) => ({ menuItemId, qty })) },
+        });
+        finishEdit();
+        const amount = money(Math.abs(differenceCents));
+        setStatus(
+          differenceCents > 0 ? `Receipt #${label(order)} updated · Collect ${amount} more`
+            : differenceCents < 0 ? `Receipt #${label(order)} updated · Give back ${amount}`
+            : `Receipt #${label(order)} updated`, 'ok big');
+        offerPrint(order, false);
+        loadToday();
+      } catch (err) {
+        setStatus(err.status ? err.message : 'No connection. Receipts can only be changed online.', 'error');
+        $('save-edit').disabled = false;
+      }
+    });
+
+    let voiding = null;
+    function openVoid(order) {
+      voiding = order;
+      $('void-form').reset();
+      $('void-error').textContent = '';
+      $('void-title').textContent = `Void receipt #${label(order)}`;
+      $('void-summary').textContent = `${money(order.total_cents)} · ${order.items.map((i) => `${i.qty}× ${i.name}`).join(', ')}. ` +
+        'It stays on record but no longer counts as a sale.';
+      $('void-dialog').showModal();
+    }
+    $('void-form').addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-reason]');
+      if (chip) $('void-form').reason.value = chip.dataset.reason;
+    });
+    $('void-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const reason = $('void-form').reason.value.trim();
+      if (!reason) return ($('void-error').textContent = 'Give a reason.');
+      const submit = $('void-form').querySelector('[type=submit]');
+      submit.disabled = true;
+      try {
+        const order = await api(`/api/orders/${voiding.id}/void`, { method: 'POST', body: { reason } });
+        $('void-dialog').close();
+        showToast(`Receipt #${label(order)} voided · Return ${money(order.total_cents)} to the customer`);
+        loadToday();
+      } catch (err) {
+        $('void-error').textContent = err.status ? err.message : 'No connection. Receipts can only be voided online.';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    // ===== Printed receipts =====
+    // Printing goes through the tablet's own print screen (AirPrint on iPad), so any
+    // receipt printer the tablet can print to works. Settings are kept per tablet.
+    const PRINTER_KEY = `${STORE}.printer`;
+    const printer = { paper: '80', auto: false, ...readSaved(PRINTER_KEY, {}) };
+    let lastReceipt = null;
+
+    const receiptTime = (iso) => new Date(iso).toLocaleString('en-PH', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+    const row = (left, right, cls = '') => `<div class="r-row ${cls}"><span>${left}</span><span>${right}</span></div>`;
+
+    function receiptHtml(r, { reprint = false, test = false } = {}) {
+      const items = r.items.map((i) => `
+        ${row(`${i.qty} × ${esc(i.name)}`, money(i.qty * i.unit_price_cents))}
+        ${i.qty > 1 ? `<div class="r-sub">@ ${money(i.unit_price_cents)}</div>` : ''}`).join('');
+      const count = r.items.reduce((n, i) => n + i.qty, 0);
+      // Barista receipts carry the bar's title and a large order number to call out at pickup.
+      const number = r.receipt_no ? label(r) : null;
+      const heading = IS_BARISTA
+        ? `<div class="r-center r-title">${esc(receiptInfo.title ?? 'Coffee Bar')}</div>
+           <div class="r-center r-order">${number ? `Order ${esc(number)}` : 'Order # pending'}</div>
+           <div class="r-center">${receiptTime(r.created_at)}</div>`
+        : row(number ? `Receipt #${esc(number)}` : 'Receipt # pending', receiptTime(r.created_at));
+      return `
+        <div class="r-center r-name">${esc(receiptInfo.name)}</div>
+        ${receiptInfo.header.map((l) => `<div class="r-center">${esc(l)}</div>`).join('')}
+        <hr>
+        ${test ? '<div class="r-center r-big">TEST PRINT</div>' : ''}
+        ${r.status === 'voided' ? `<div class="r-center r-big">*** VOIDED ***</div><div class="r-center">${esc(r.void_reason ?? '')}</div>` : ''}
+        ${heading}
+        ${reprint ? '<div class="r-center">REPRINT</div>' : ''}
+        ${r.staff_name ? `<div class="r-center">${IS_BARISTA ? 'Barista' : 'Cashier'}: ${esc(r.staff_name)}</div>` : ''}
+        ${r.edit_count ? '<div class="r-center">Edited after sale</div>' : ''}
+        ${r.offline ? '<div class="r-center">Saved offline · number given when sent</div>' : ''}
+        <hr>
+        ${items}
+        <hr>
+        ${r.tax_cents ? row('Subtotal', money(r.subtotal_cents)) + row('Tax', money(r.tax_cents)) : ''}
+        ${row(`TOTAL <small>(${count} item${count === 1 ? '' : 's'})</small>`, money(r.total_cents), 'r-total')}
+        ${r.cash_tendered_cents != null ? row('Cash', money(r.cash_tendered_cents)) + row('Change', money(r.change_cents)) : ''}
+        <hr>
+        ${receiptInfo.footer.map((l) => `<div class="r-center">${esc(l)}</div>`).join('')}`;
+    }
+
+    function printReceipt(r, options) {
+      const el = $('print-receipt');
+      el.innerHTML = receiptHtml(r, options);
+      el.dataset.paper = printer.paper;
+      el.dataset.station = STATION;
+      window.print();
+    }
+
+    // Shows "Print receipt" for the sale just finished, and prints straight away if set to.
+    function offerPrint(r, printNow) {
+      lastReceipt = r;
+      $('print-last').textContent = r.receipt_no ? `Print receipt #${label(r)}` : 'Print receipt';
+      $('print-last').hidden = false;
+      if (printNow) printReceipt(r);
+    }
+    $('print-last').addEventListener('click', () => lastReceipt && printReceipt(lastReceipt));
+
+    const printerForm = $('printer-form');
+    $('printer-settings').addEventListener('click', () => {
+      printerForm.paper.value = printer.paper;
+      printerForm.auto.checked = printer.auto;
+      $('printer-dialog').showModal();
+    });
+    printerForm.addEventListener('change', () => {
+      printer.paper = printerForm.paper.value;
+      printer.auto = printerForm.auto.checked;
+      save(PRINTER_KEY, printer);
+    });
+    $('test-print').addEventListener('click', () => {
+      const sample = menu.slice(0, 2).map((m, i) => ({ name: m.name, qty: i + 1, unit_price_cents: m.price_cents }));
+      const subtotal = sample.reduce((n, i) => n + i.qty * i.unit_price_cents, 0);
+      const tax = Math.round(subtotal * taxRate);
+      printReceipt({
+        receipt_no: IS_BARISTA ? 1 : 1000, receipt_label: IS_BARISTA ? 'B-0001' : '1000', station: STATION, created_at: new Date().toISOString(), items: sample,
+        subtotal_cents: subtotal, tax_cents: tax, total_cents: subtotal + tax,
+        cash_tendered_cents: Math.ceil((subtotal + tax) / 50_000) * 50_000,
+        change_cents: Math.ceil((subtotal + tax) / 50_000) * 50_000 - subtotal - tax,
+      }, { test: true });
+    });
+
+    // ===== Today's numbers =====
+    function renderToday() {
+      if (!today) return;
+      const s = today.summary;
+      $('today-tiles').innerHTML = `
+        <div class="tile"><div class="label">Sales today</div><div class="value">${money(s.gross_cents)}</div></div>
+        <div class="tile"><div class="label">Receipts</div><div class="value">${s.order_count}</div></div>
+        <div class="tile"><div class="label">Average sale</div><div class="value">${s.order_count ? money(Math.round(s.gross_cents / s.order_count)) : '–'}</div></div>
+        <div class="tile"><div class="label">Voided</div><div class="value">${s.void_count}<small> · ${money(s.void_cents)}</small></div></div>`;
+      $('sold-today').innerHTML = today.topItems.length
+        ? today.topItems.map((i) => `<tr><td>${esc(i.name)}</td><td class="num">${i.qty}</td><td class="num">${money(i.revenue_cents)}</td></tr>`).join('')
+        : '<tr><td colspan="3" class="empty">Nothing sold yet</td></tr>';
+    }
+
+    async function loadToday() {
+      try {
+        today = await api(`/api/pos/today?station=${STATION}`);
+        renderToday();
+        renderReceipts();
+      } catch {}
+    }
+
+    // Any sale, edit or void refreshes today's numbers (the server only sends back this till's).
+    for (const event of ['order.created', 'order.updated']) socket.on(event, loadToday);
+
+    // ===== New menu item (needs the owner's approval) =====
+    const itemDialog = $('new-item-dialog');
+    const itemForm = $('new-item-form');
+
+    $('new-item').addEventListener('click', () => {
+      itemForm.reset();
+      $('new-item-error').textContent = '';
+      $('category-options').innerHTML = [...new Set(menu.map((m) => m.category))]
+        .map((c) => `<option value="${esc(c)}">`).join('');
+      if (activeCategory !== 'All') itemForm.category.value = activeCategory;
+      itemDialog.showModal();
+      itemForm.name.focus();
+    });
+    document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
+
+    itemForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = itemForm.name.value.trim();
+      const category = itemForm.category.value.trim();
+      const priceCents = parseMoney(itemForm.price.value);
+      if (!name || !category) return ($('new-item-error').textContent = 'Fill in the name and category.');
+      if (!(priceCents > 0)) return ($('new-item-error').textContent = 'Enter a price, e.g. 150');
+
+      const submit = itemForm.querySelector('[type=submit]');
+      submit.disabled = true;
+      try {
+        const item = await api('/api/menu/requests', {
+          method: 'POST',
+          body: { name, category, priceCents, sendsToKitchen: itemForm.kitchen.checked },
+        });
+        itemDialog.close();
+        showToast(item.status === 'approved' ? `"${item.name}" added to the menu` : `"${item.name}" sent to the owner for approval`);
+        loadMenu();
+      } catch (err) {
+        $('new-item-error').textContent = err.status ? err.message : 'No connection. Try again when the internet is back.';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    // ===== Loading =====
+    function showMenu(data) {
+      menu = data.items;
+      pendingItems = data.pending ?? [];
+      taxRate = data.taxRate;
+      if (data.receipt) receiptInfo = data.receipt;
+      // Drop anything from a new sale that is no longer on the menu or was just marked unavailable.
+      if (!editing) {
+        for (const id of cart.keys()) {
+          const item = menu.find((m) => m.id === id);
+          if (!item || !item.available) {
+            cart.delete(id);
+            if (item) setStatus(`${item.name} was marked unavailable and taken off the order`, 'warn');
+          }
+        }
+      }
+      renderMenu();
+      renderCart();
+    }
+
+    // Keep a copy of the menu so the POS still opens and works offline.
+    function loadMenu() {
+      return api(`/api/menu?station=${STATION}`)
+        .then((data) => {
+          save(MENU_KEY, data);
+          showMenu(data);
+        })
+        .catch((err) => {
+          const saved = readSaved(MENU_KEY, null);
+          if (saved) showMenu(saved);
+          else setStatus(`Could not load menu: ${err.message}`, 'error');
+        });
+    }
+    loadMenu();
+    loadToday();
+    // Show who is signed in. With personal sign-in, "Switch" hands the tablet to the next cashier.
+    api('/api/me').then((me) => {
+      if (!me.name) return;
+      cashierName = me.name;
+      $('who').textContent = me.name;
+      $('who').hidden = false;
+      $('logout').textContent = 'Switch';
+    }).catch(() => {});
+    socket.on('menu.updated', loadMenu); // an item was requested, approved or rejected
+    renderPending();
+    sendPending();
+
+    // Lets the POS page itself open without internet (needs HTTPS, so cloud only).
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>

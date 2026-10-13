@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/admin.webmanifest">
+  <title>Café Ambiente · Admin</title>
+  <meta name="theme-color" content="#6a3b1f">
+  <link rel="icon" href="/brand/icon-192.png">
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="admin-page">
+  <header class="topbar photo">
+    <div class="brand">
+      <span class="logo mark" role="img" aria-label="Café Ambiente logo"></span>
+      <div>
+        <div class="brand-name">Café Ambiente</div>
+        <div class="brand-sub">Owner's dashboard</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button id="alerts" class="btn ghost small" hidden>Turn on alerts</button>
+      <span id="conn" class="badge">Connecting…</span>
+      <button class="btn ghost small" onclick="logout()">Log out</button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <main class="admin">
+    <section id="requests" class="panel requests" hidden>
+      <h2>Menu approvals <span id="requests-count" class="pill new"></span></h2>
+      <p class="hint">Added from the POS. They can't be sold until you approve them. Check the name, category and price first.</p>
+      <div id="requests-list" class="request-list"></div>
+    </section>
+
+    <nav class="day-nav" aria-label="Choose a day">
+      <button id="prev-day" class="btn small" aria-label="Previous day">‹</button>
+      <h1 id="day-title">Today</h1>
+      <button id="next-day" class="btn small" aria-label="Next day">›</button>
+      <input id="day-picker" type="date" aria-label="Pick a date">
+      <button id="go-today" class="btn small" hidden>Back to today</button>
+    </nav>
+
+    <section id="tiles" class="tiles"></section>
+
+    <div class="admin-columns">
+      <section class="panel">
+        <h2>Items sold</h2>
+        <table>
+          <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Sales</th></tr></thead>
+          <tbody id="top-items"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>Receipts <span class="pill">tap a row for details</span></h2>
+        <table>
+          <thead>
+            <tr><th>Receipt</th><th>Time</th><th class="num">Items</th><th>Status</th><th>Kitchen</th><th class="num">Total</th></tr>
+          </thead>
+          <tbody id="receipts"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="admin-columns">
+      <section class="panel">
+        <h2>Activity log</h2>
+        <ul id="logs" class="log-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Daily performance <span class="pill">last 30 days · tap a day</span></h2>
+        <table>
+          <thead>
+            <tr><th>Date</th><th class="num">Receipts</th><th class="num">Gross sales</th><th class="num">Voids</th></tr>
+          </thead>
+          <tbody id="history"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <section class="panel perf" aria-labelledby="perf-heading">
+      <div class="perf-head">
+        <h2 id="perf-heading">Performance</h2>
+        <div class="perf-units" role="group" aria-label="Show by">
+          <button class="chip" data-unit="week">Week</button>
+          <button class="chip active" data-unit="month">Month</button>
+          <button class="chip" data-unit="year">Year</button>
+          <button class="chip" data-unit="calendar">Full calendar</button>
+        </div>
+        <div class="perf-nav">
+          <button id="perf-prev" class="btn small" aria-label="Previous period">‹</button>
+          <strong id="perf-title" aria-live="polite"></strong>
+          <button id="perf-next" class="btn small" aria-label="Next period">›</button>
+          <input id="perf-picker" type="date" aria-label="Jump to a date">
+        </div>
+      </div>
+
+      <div id="perf-tiles" class="tiles perf-tiles"></div>
+
+      <div class="perf-visuals">
+        <figure class="perf-chart">
+          <figcaption id="perf-chart-title" class="perf-caption"></figcaption>
+          <div id="perf-chart" class="chart-box"></div>
+          <div id="perf-tip" class="chart-tip" role="status" hidden></div>
+        </figure>
+        <div>
+          <div id="perf-calendar" class="perf-calendar"></div>
+          <div class="heat-key" aria-hidden="true">Less <i></i><i></i><i></i><i></i><i></i> More</div>
+          <div class="event-key" aria-hidden="true"><span class="ev-mark iligan">★</span> Iligan City <span class="ev-mark national">●</span> Philippines</div>
+        </div>
+      </div>
+
+      <div id="full-calendar" class="full-calendar" hidden>
+        <p id="fc-info" class="fc-info" aria-live="polite">Point at or tap a day to see its sales. Tap again (or click) to open it.</p>
+        <div id="fc-months" class="fc-months"></div>
+        <div class="fc-keys">
+          <div class="heat-key" aria-hidden="true">Less <i></i><i></i><i></i><i></i><i></i> More</div>
+          <div class="event-key" aria-hidden="true"><span class="ev-mark iligan">★</span> Iligan City <span class="ev-mark national">●</span> Philippines</div>
+        </div>
+      </div>
+
+      <div class="events-block">
+        <h3 class="perf-sub">Events &amp; holidays <span class="pill">Iligan City first</span></h3>
+        <table class="events-table">
+          <thead><tr><th>Event</th><th>Dates</th><th class="num">Sales per day</th><th class="num">vs normal days</th><th class="num">vs last year</th><th></th></tr></thead>
+          <tbody id="event-rows"></tbody>
+        </table>
+        <p class="hint">"Normal days" are the 28 days before the event, skipping other events. Dates marked ≈ follow the moon or a yearly proclamation: hide them and add the exact dates if they differ.</p>
+        <p id="hidden-events" class="hint" hidden></p>
+        <details class="add-event">
+          <summary>Add an event (school days, concerts, a fiesta's exact dates…)</summary>
+          <form id="event-form" class="event-form" novalidate>
+            <input name="name" maxlength="60" placeholder="Event name" autocomplete="off" aria-label="Event name" required>
+            <label>From <input name="start" type="date" required></label>
+            <label>To <input name="end" type="date" required></label>
+            <select name="kind" aria-label="Where">
+              <option value="iligan">★ Iligan City</option>
+              <option value="national">● Philippines</option>
+            </select>
+            <input name="note" maxlength="140" placeholder="Note (optional)" autocomplete="off" aria-label="Note">
+            <button class="btn primary" type="submit">Add event</button>
+          </form>
+          <p id="event-error" class="status error" role="alert"></p>
+        </details>
+      </div>
+
+      <div class="perf-columns">
+        <div>
+          <h3 class="perf-sub">Summary</h3>
+          <ul id="perf-insights" class="insights"></ul>
+        </div>
+        <div>
+          <h3 class="perf-sub">Best sellers</h3>
+          <table>
+            <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Sales</th></tr></thead>
+            <tbody id="perf-items"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <details class="perf-table">
+        <summary>Show the numbers as a table</summary>
+        <table>
+          <thead><tr><th id="perf-table-label">Day</th><th class="num">Receipts</th><th class="num">Gross sales</th><th class="num">Average sale</th><th class="num">Voids</th></tr></thead>
+          <tbody id="perf-rows"></tbody>
+        </table>
+      </details>
+    </section>
+    <section class="panel security" aria-labelledby="security-heading">
+      <h2 id="security-heading">Staff &amp; sign-in</h2>
+      <p class="hint">Each person signs in with their own Face ID, Touch ID or fingerprint, so every sale, edit and void shows who did it.
+        Fingerprints and faces stay on the device; only a key is saved here.</p>
+      <p id="sec-https" class="hint warn-text" hidden>Face ID and fingerprint only work on the secure address (https, e.g. your Railway link) or on localhost.</p>
+
+      <div class="sec-grid">
+        <div>
+          <h3 class="perf-sub">Staff</h3>
+          <table>
+            <thead><tr><th>Name</th><th>Screen</th><th>Devices set up</th><th>Last sign-in</th><th></th></tr></thead>
+            <tbody id="staff-rows"></tbody>
+          </table>
+          <form id="staff-form" class="staff-form" novalidate>
+            <input name="name" maxlength="40" placeholder="New staff name" autocomplete="off" aria-label="Staff name" required>
+            <select name="role" aria-label="Screen">
+              <option value="pos">Cashier (POS)</option>
+              <option value="barista">Barista</option>
+              <option value="kitchen">Kitchen</option>
+              <option value="inventory">Inventory</option>
+            </select>
+            <button class="btn primary" type="submit">Add</button>
+          </form>
+          <p id="staff-error" class="status error" role="alert"></p>
+          <div id="setup-code" class="setup-code" hidden></div>
+        </div>
+
+        <div class="sec-side">
+          <h3 class="perf-sub">Your sign-in (owner)</h3>
+          <ul id="owner-devices" class="device-list"></ul>
+          <button id="owner-passkey" class="btn">Set up Face ID / Touch ID on this device</button>
+          <p id="owner-status" class="status" role="status"></p>
+
+          <h3 class="perf-sub">Shared PINs</h3>
+          <p class="hint">Turn these off once everyone has their own sign-in. Your owner password always works.</p>
+          <label class="toggle"><input type="checkbox" id="pin-pos"> Allow the shared POS PIN</label>
+          <label class="toggle"><input type="checkbox" id="pin-barista"> Allow the shared barista PIN</label>
+          <label class="toggle"><input type="checkbox" id="pin-kitchen"> Allow the shared kitchen PIN</label>
+          <label class="toggle"><input type="checkbox" id="pin-inventory"> Allow the shared inventory PIN</label>
+        </div>
+      </div>
+    </section>
+    <section id="inventory" class="panel" aria-labelledby="inventory-heading">
+      <h2 id="inventory-heading">Inventory <span id="inv-count" class="pill"></span>
+        <a class="btn small inv-open" href="/inventory">Open inventory screen</a></h2>
+      <div id="to-buy" class="to-buy" hidden>
+        <h3>To buy</h3>
+        <ul id="to-buy-list"></ul>
+      </div>
+      <div class="inv-columns">
+        <div>
+          <table>
+            <thead><tr><th>Item</th><th class="num">On hand</th><th>Reorder below</th><th>Last update</th><th></th></tr></thead>
+            <tbody id="inv-rows"></tbody>
+          </table>
+        </div>
+        <div>
+          <h3 class="perf-sub">Recent stock changes</h3>
+          <ul id="inv-log" class="log-list"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script src="/vendor/webauthn.js"></script>
+  <script>
+    const socket = io();
+    showConnection(socket, document.getElementById('conn'));
+    const $ = (id) => document.getElementById(id);
+
+    const expanded = new Set(); // receipt rows the owner has opened
+    let newestSeenId = null;    // used to flash receipts that just arrived
+    let selectedDate = null;    // null = today
+    let lastData = null;
+
+    function showToast(text) {
+      const toast = $('toast');
+      toast.textContent = text;
+      toast.hidden = false;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => (toast.hidden = true), 6000);
+    }
+
+    // ===== Dates =====
+    const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+    const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const longDate = (s) => parseDate(s).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    const shiftDate = (s, days) => { const d = parseDate(s); d.setDate(d.getDate() + days); return formatDate(d); };
+
+    function selectDate(date) {
+      selectedDate = date;
+      expanded.clear();
+      newestSeenId = null;
+      load().then(loadHistory); // re-highlight the chosen day
+    }
+    $('prev-day').addEventListener('click', () => lastData && selectDate(shiftDate(lastData.date, -1)));
+    $('next-day').addEventListener('click', () => lastData && !lastData.isToday && selectDate(shiftDate(lastData.date, 1)));
+    $('go-today').addEventListener('click', () => selectDate(null));
+    $('day-picker').addEventListener('change', () => $('day-picker').value && selectDate($('day-picker').value));
+
+    // ===== One day's report =====
+    const ACTOR_NAME = { admin: 'Owner', pos: 'Cashier', barista: 'Barista', kitchen: 'Kitchen', inventory: 'Inventory' };
+    const actorOf = (l) => l.actor_name ?? ACTOR_NAME[l.actor] ?? l.actor;
+    const label = (o) => o.receipt_label ?? o.receipt_no;
+
+    function receiptDetail(o, logs) {
+      const lines = o.items.map((i) =>
+        `<li><span>${i.qty} × ${esc(i.name)} @ ${money(i.unit_price_cents)}</span><span>${money(i.qty * i.unit_price_cents)}</span></li>`).join('');
+      const extra = [];
+      if (o.tax_cents) extra.push(`<li><span>Tax</span><span>${money(o.tax_cents)}</span></li>`);
+      extra.push(`<li><strong>Total</strong><strong>${money(o.total_cents)}</strong></li>`);
+      if (o.staff_name) extra.push(`<li><span>Rung up by</span><span>${esc(o.staff_name)}</span></li>`);
+      if (o.cash_tendered_cents != null) {
+        extra.push(`<li><span>Cash received · change</span><span>${money(o.cash_tendered_cents)} · ${money(o.change_cents)}</span></li>`);
+      }
+      const history = logs.filter((l) => l.order_id === o.id).reverse()
+        .map((l) => `<li class="muted"><span>${timeOf(l.at)} · ${esc(actorOf(l))}: ${esc(l.message)}</span></li>`).join('');
+      return `<tr class="detail"><td colspan="6"><ul class="detail-items">${lines}${extra.join('')}${history}</ul></td></tr>`;
+    }
+
+    function render(data) {
+      lastData = data;
+      const { summary: s, topItems, orders, logs } = data;
+
+      $('day-title').textContent = data.isToday ? `Today · ${longDate(data.date)}` : longDate(data.date);
+      $('next-day').disabled = data.isToday;
+      $('go-today').hidden = data.isToday;
+      $('day-picker').value = data.date;
+      if (data.isToday) $('day-picker').max = data.date;
+
+      $('tiles').innerHTML = `
+        <div class="tile"><div class="label">Gross sales</div><div class="value">${money(s.gross_cents)}</div></div>
+        <div class="tile"><div class="label">Receipts</div><div class="value">${count(s.order_count)}</div></div>
+        <div class="tile"><div class="label">Average sale</div><div class="value">${s.order_count ? money(Math.round(s.gross_cents / s.order_count)) : '–'}</div></div>
+        <div class="tile"><div class="label">Voided</div><div class="value">${s.void_count}<small> · ${money(s.void_cents)}</small></div></div>`;
+
+      $('top-items').innerHTML = topItems.length
+        ? topItems.map((i) => `
+            <tr><td>${esc(i.name)}</td><td class="num">${i.qty}</td><td class="num">${money(i.revenue_cents)}</td></tr>`).join('')
+        : '<tr><td colspan="3" class="empty">No sales</td></tr>';
+
+      $('receipts').innerHTML = orders.length
+        ? orders.map((o) => {
+            const itemCount = o.items.reduce((n, i) => n + i.qty, 0);
+            const fresh = newestSeenId !== null && o.id > newestSeenId;
+            const voided = o.status === 'voided';
+            const status = voided ? '<span class="pill void">voided</span>'
+              : o.edit_count ? '<span class="pill">edited</span>' : '<span class="pill ready">paid</span>';
+            const kitchen = ['none', 'cancelled'].includes(o.kitchen_status) ? '—' : `<span class="pill ${o.kitchen_status}">${o.kitchen_status}</span>`;
+            const row = `
+              <tr class="receipt ${fresh ? 'fresh' : ''} ${voided ? 'voided' : ''}" data-id="${o.id}">
+                <td>#${label(o)}${o.station === 'barista' ? ' <span class="pill">barista</span>' : ''}</td>
+                <td>${timeOf(o.created_at)}</td>
+                <td class="num">${itemCount}</td>
+                <td>${status}</td>
+                <td>${kitchen}</td>
+                <td class="num">${money(o.total_cents)}</td>
+              </tr>`;
+            return expanded.has(o.id) ? row + receiptDetail(o, logs) : row;
+          }).join('')
+        : '<tr><td colspan="6" class="empty">No receipts</td></tr>';
+      if (data.isToday) newestSeenId = orders.length ? Math.max(newestSeenId ?? 0, ...orders.map((o) => o.id)) : (newestSeenId ?? 0);
+
+      $('logs').innerHTML = logs.length
+        ? logs.map((l) => `<li><span class="log-time">${timeOf(l.at)}</span><span class="log-actor">${esc(actorOf(l))}</span><span>${esc(l.message)}</span></li>`).join('')
+        : '<li class="empty">Nothing logged</li>';
+      renderCalendar(); // mark the chosen day
+      renderFullCalendar();
+    }
+
+    async function load() {
+      try {
+        render(await api(`/api/admin/day${selectedDate ? `?date=${selectedDate}` : ''}`));
+      } catch (err) {
+        $('receipts').innerHTML = `<tr><td colspan="6" class="empty">Could not load: ${esc(err.message)}</td></tr>`;
+      }
+    }
+
+    $('receipts').addEventListener('click', (e) => {
+      const row = e.target.closest('tr.receipt');
+      if (!row || !lastData) return;
+      const id = Number(row.dataset.id);
+      if (expanded.has(id)) expanded.delete(id);
+      else expanded.add(id);
+      render(lastData);
+    });
+
+    // ===== Daily performance =====
+    async function loadHistory() {
+      try {
+        const rows = await api('/api/admin/history?days=30');
+        $('history').innerHTML = rows.map((r) => {
+          const selected = lastData && r.date === lastData.date;
+          return `<tr class="history-row${selected ? ' selected' : ''}" data-date="${r.date}">
+            <td>${parseDate(r.date).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}</td>
+            <td class="num">${r.order_count}</td>
+            <td class="num">${money(r.gross_cents)}</td>
+            <td class="num">${r.void_count || '–'}</td>
+          </tr>`;
+        }).join('');
+      } catch {}
+    }
+    $('history').addEventListener('click', (e) => {
+      const row = e.target.closest('[data-date]');
+      if (row) selectDate(row.dataset.date);
+    });
+
+    function refresh() {
+      if (!selectedDate || lastData?.isToday) load();
+      loadHistory();
+      if (!perfData || perfData.isCurrent) {
+        clearTimeout(refresh.perfTimer);
+        refresh.perfTimer = setTimeout(loadPerformance, 500); // a burst of sales reloads once
+      }
+    }
+
+    // ===== Performance: week, month or year =====
+    let perfUnit = 'month';
+    let perfAnchor = formatDate(new Date()); // any date inside the period shown
+    let perfData = null;
+    let activeBar = null;     // bar index showing its tooltip
+    let lastPointer = 'mouse';
+
+    const compactMoney = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', notation: 'compact', maximumFractionDigits: 1 });
+    const shortMoney = (cents) => compactMoney.format(cents / 100);
+    const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const parseMonth = (key) => { const [y, m] = key.split('-').map(Number); return new Date(y, m - 1, 1); };
+    const count = (n) => n.toLocaleString('en-PH');
+    const plural = (n, word) => `${count(n)} ${word}${n === 1 ? '' : 's'}`;
+    const hourLabel = (h) => new Date(2000, 0, 1, h).toLocaleTimeString('en-PH', { hour: 'numeric' });
+
+    function periodTitle(d) {
+      if (d.unit === 'year') return d.start.slice(0, 4);
+      if (d.unit === 'month') return parseDate(d.start).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+      const a = parseDate(d.start), b = parseDate(d.end);
+      const mon = (x) => x.toLocaleDateString('en-PH', { month: 'short' });
+      if (a.getFullYear() !== b.getFullYear()) return `${mon(a)} ${a.getDate()}, ${a.getFullYear()} – ${mon(b)} ${b.getDate()}, ${b.getFullYear()}`;
+      const right = a.getMonth() === b.getMonth() ? b.getDate() : `${mon(b)} ${b.getDate()}`;
+      return `${mon(a)} ${a.getDate()} – ${right}, ${b.getFullYear()}`;
+    }
+    const bucketLong = (b) => perfData.unit === 'year'
+      ? parseMonth(b.key).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
+      : longDate(b.key);
+    const bucketShort = (b, i) => perfData.unit === 'year'
+      ? parseMonth(b.key).toLocaleDateString('en-PH', { month: 'short' })
+      : perfData.unit === 'week' ? parseDate(b.key).toLocaleDateString('en-PH', { weekday: 'short' }) : String(i + 1);
+
+    // Percent change, or null when there's nothing to compare with.
+    const change = (now, before) => (before > 0 ? Math.round(((now - before) / before) * 100) : null);
+    const changeText = (pct) => (pct === null ? '' : pct === 0 ? 'no change' : `${pct > 0 ? '▲' : '▼'} ${Math.abs(pct)}%`);
+
+    function shiftAnchor(steps) {
+      const d = parseDate(perfAnchor);
+      if (perfUnit === 'week') d.setDate(d.getDate() + 7 * steps);
+      else if (perfUnit === 'month') { d.setDate(1); d.setMonth(d.getMonth() + steps); }
+      else { d.setMonth(0, 1); d.setFullYear(d.getFullYear() + steps); }
+      perfAnchor = formatDate(d);
+      loadPerformance();
+    }
+    $('perf-prev').addEventListener('click', () => shiftAnchor(-1));
+    $('perf-next').addEventListener('click', () => perfData && !perfData.isCurrent && shiftAnchor(1));
+    $('perf-picker').addEventListener('change', () => {
+      if (!$('perf-picker').value) return;
+      perfAnchor = $('perf-picker').value;
+      loadPerformance();
+    });
+    document.querySelector('.perf-units').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-unit]');
+      if (button) setUnit(button.dataset.unit);
+    });
+    function setUnit(unit, anchor = perfAnchor) {
+      perfUnit = unit;
+      perfAnchor = anchor;
+      document.querySelectorAll('.perf-units .chip').forEach((c) => c.classList.toggle('active', c.dataset.unit === unit));
+      loadPerformance();
+    }
+
+    async function loadPerformance() {
+      try {
+        // The full calendar is the year, with every day's figures.
+        perfData = await api(`/api/admin/period?unit=${perfUnit === 'calendar' ? 'year&daily=1' : perfUnit}&date=${perfAnchor}`);
+        activeBar = null;
+        renderPerformance();
+      } catch (err) {
+        $('perf-insights').innerHTML = `<li>Could not load: ${esc(err.message)}</li>`;
+      }
+    }
+
+    function renderPerformance() {
+      const d = perfData, s = d.summary, p = d.previous;
+      const unitWord = d.unit;
+      $('perf-title').textContent = periodTitle(d);
+      $('perf-next').disabled = d.isCurrent;
+      $('perf-picker').value = perfAnchor;
+      $('perf-picker').max = formatDate(new Date());
+      $('perf-chart-title').textContent = d.unit === 'year' ? 'Gross sales by month' : 'Gross sales by day';
+      $('perf-table-label').textContent = d.unit === 'year' ? 'Month' : 'Day';
+
+      const vs = p.partial ? `vs same point last ${unitWord}` : `vs last ${unitWord}`;
+      const salesChange = change(s.gross_cents, p.gross_cents);
+      const receiptChange = change(s.order_count, p.order_count);
+      const perDay = d.elapsedDays ? Math.round(s.gross_cents / d.elapsedDays) : 0;
+      $('perf-tiles').innerHTML = `
+        <div class="tile"><div class="label">Gross sales${d.isCurrent ? ' so far' : ''}</div><div class="value">${money(s.gross_cents)}</div>
+          <div class="delta">${salesChange === null ? `nothing to compare last ${unitWord}` : `${changeText(salesChange)} ${vs}`}</div></div>
+        <div class="tile"><div class="label">Receipts</div><div class="value">${count(s.order_count)}</div>
+          <div class="delta">${receiptChange === null ? '&nbsp;' : `${changeText(receiptChange)} ${vs}`}</div></div>
+        <div class="tile"><div class="label">Average sale</div><div class="value">${s.order_count ? money(Math.round(s.gross_cents / s.order_count)) : '–'}</div></div>
+        <div class="tile"><div class="label">Average per day</div><div class="value">${d.elapsedDays ? money(perDay) : '–'}</div>
+          <div class="delta">${s.trading_days} of ${d.elapsedDays} day${d.elapsedDays === 1 ? '' : 's'} with sales</div></div>
+        <div class="tile"><div class="label">Voided</div><div class="value">${s.void_count}<small> · ${money(s.void_cents)}</small></div></div>`;
+
+      const full = perfUnit === 'calendar';
+      document.querySelector('.perf-visuals').hidden = full;
+      $('full-calendar').hidden = !full;
+      if (full) renderFullCalendar();
+      else { renderChart(); renderCalendar(); }
+      renderInsights();
+      renderEvents();
+
+      $('perf-items').innerHTML = d.topItems.length
+        ? d.topItems.map((i) => `<tr><td>${esc(i.name)}</td><td class="num">${count(i.qty)}</td><td class="num">${money(i.revenue_cents)}</td></tr>`).join('')
+        : '<tr><td colspan="3" class="empty">No sales</td></tr>';
+
+      const rows = d.buckets.filter((b) => !b.future);
+      $('perf-rows').innerHTML = rows.length
+        ? rows.map((b) => `<tr><td>${esc(bucketLong(b))}</td><td class="num">${count(b.order_count)}</td><td class="num">${money(b.gross_cents)}</td>
+            <td class="num">${b.order_count ? money(Math.round(b.gross_cents / b.order_count)) : '–'}</td><td class="num">${b.void_count || '–'}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="empty">Nothing yet</td></tr>';
+    }
+
+    function renderInsights() {
+      const d = perfData, s = d.summary, p = d.previous, unitWord = d.unit;
+      const out = [];
+      if (!s.order_count) {
+        out.push(d.elapsedDays ? `No sales recorded this ${unitWord}${d.isCurrent ? ' yet' : ''}.` : `This ${unitWord} hasn't started yet.`);
+      } else {
+        const pct = change(s.gross_cents, p.gross_cents);
+        const span = p.partial ? `the same ${d.elapsedDays} day${d.elapsedDays === 1 ? '' : 's'} last ${unitWord}` : `last ${unitWord}`;
+        out.push(pct === null
+          ? `Sales of <strong>${money(s.gross_cents)}</strong> from ${plural(s.order_count, 'receipt')}. There were no sales ${span} to compare with.`
+          : pct === 0
+            ? `Sales of <strong>${money(s.gross_cents)}</strong> from ${plural(s.order_count, 'receipt')}, level with ${span} (${money(p.gross_cents)}).`
+            : `Sales of <strong>${money(s.gross_cents)}</strong> from ${plural(s.order_count, 'receipt')}, ${pct > 0 ? 'up' : 'down'} <strong>${Math.abs(pct)}%</strong> on ${span} (${money(p.gross_cents)}).`);
+
+        const best = d.buckets.reduce((a, b) => (b.gross_cents > a.gross_cents ? b : a));
+        out.push(`Best ${d.unit === 'year' ? 'month' : 'day'}: <strong>${esc(bucketLong(best))}</strong>, ${money(best.gross_cents)} from ${plural(best.order_count, 'receipt')}.`);
+
+        if (d.unit !== 'week' && s.trading_days >= 5) { // too few days says nothing about weekdays
+          const days = d.weekdays.filter((w) => w.days > 0).map((w) => ({ ...w, avg: w.gross_cents / w.days }));
+          if (days.length > 1) {
+            days.sort((a, b) => b.avg - a.avg);
+            const top = days[0], low = days[days.length - 1];
+            out.push(`Strongest weekday: <strong>${WEEKDAYS[top.weekday]}</strong> (${money(Math.round(top.avg))} on average). Quietest: ${WEEKDAYS[low.weekday]} (${money(Math.round(low.avg))}).`);
+          }
+        }
+
+        const peak = d.hours.reduce((best, h, i) => (h.order_count > d.hours[best].order_count ? i : best), 0);
+        out.push(`Busiest hour: <strong>${hourLabel(peak)}–${hourLabel((peak + 1) % 24)}</strong>, with ${plural(d.hours[peak].order_count, 'receipt')} (${Math.round((d.hours[peak].order_count / s.order_count) * 100)}% of the ${unitWord}).`);
+
+        if (d.topItems.length) {
+          const t = d.topItems[0];
+          out.push(`Top seller: <strong>${esc(t.name)}</strong>, ${count(t.qty)} sold for ${money(t.revenue_cents)}.`);
+        }
+        const catTotal = d.categories.reduce((n, c) => n + c.revenue_cents, 0);
+        if (d.categories.length > 1 && catTotal) {
+          out.push(`By category: ${d.categories.slice(0, 4).map((c) => `${esc(c.category)} ${Math.round((c.revenue_cents / catTotal) * 100)}%`).join(' · ')}.`);
+        }
+      }
+      if (s.order_count || visibleEvents().some((e) => e.status === 'upcoming')) eventInsights(out);
+      if (s.void_count) {
+        out.push(`${s.void_count} receipt${s.void_count === 1 ? ' was' : 's were'} voided (${money(s.void_cents)}). Check the reasons in the activity log.`);
+      }
+      if (s.edited_count) out.push(`${s.edited_count} receipt${s.edited_count === 1 ? ' was' : 's were'} edited after the sale.`);
+      $('perf-insights').innerHTML = out.map((t) => `<li>${t}</li>`).join('');
+    }
+
+    // ----- Seasonal events -----
+    let showAllEvents = false;
+    const visibleEvents = () => (perfData?.events ?? []).filter((e) => !e.hidden);
+    // Events on a day ('YYYY-MM-DD') or in a month ('YYYY-MM'), Iligan first.
+    function eventsOn(key) {
+      const from = key.length === 7 ? `${key}-01` : key, to = key.length === 7 ? `${key}-31` : key;
+      return visibleEvents().filter((e) => e.start <= to && e.end >= from)
+        .sort((a, b) => (a.kind === b.kind ? a.start.localeCompare(b.start) : a.kind === 'iligan' ? -1 : 1));
+    }
+    const MARK = { iligan: '★', national: '●' };
+    const markOf = (e) => `<span class="ev-mark ${e.kind}" aria-hidden="true">${MARK[e.kind]}</span>`;
+    function eventDates(e) {
+      const a = parseDate(e.start), b = parseDate(e.end);
+      const fmt = (x, opts) => x.toLocaleDateString('en-PH', opts);
+      if (e.start === e.end) return fmt(a, { month: 'short', day: 'numeric' });
+      return a.getMonth() === b.getMonth()
+        ? `${fmt(a, { month: 'short', day: 'numeric' })} – ${b.getDate()}`
+        : `${fmt(a, { month: 'short', day: 'numeric' })} – ${fmt(b, { month: 'short', day: 'numeric' })}`;
+    }
+    const pctText = (pct) => (pct === null || pct === undefined ? '–' : `${pct > 0 ? '▲' : pct < 0 ? '▼' : ''} ${Math.abs(pct)}%`);
+    const pctOf = (now, before) => (now != null && before ? Math.round(((now - before) / before) * 100) : null);
+
+    function renderEvents() {
+      const d = perfData;
+      const list = [...visibleEvents()].sort((a, b) => (a.kind === b.kind ? a.start.localeCompare(b.start) : a.kind === 'iligan' ? -1 : 1));
+      const LIMIT = 12;
+      const shown = showAllEvents ? list : list.slice(0, LIMIT);
+      $('event-rows').innerHTML = list.length
+        ? shown.map((e) => {
+            const during = e.during;
+            const perDay = during
+              ? `${money(during.per_day_cents)}${during.days > 1 ? `<small class="muted"> · ${money(during.gross_cents)} over ${plural(during.days, 'day')}</small>` : ''}`
+              : e.status === 'upcoming' ? '<span class="pill new">upcoming</span>' : '–';
+            const ly = e.last_year;
+            const vsLast = during && ly ? pctText(pctOf(during.per_day_cents, ly.per_day_cents))
+              : ly ? `<small>last year ${money(ly.per_day_cents)}/day</small>` : '–';
+            const action = e.custom_id
+              ? `<button class="link danger-link" data-delete-event="${e.custom_id}">Delete</button>`
+              : `<button class="link" data-hide-event="${esc(e.key)}">Hide</button>`;
+            return `<tr class="ev-row ${e.kind}">
+              <td>${markOf(e)} <strong>${esc(e.name)}</strong>${e.approx ? ' <span class="muted" title="Date may shift">≈</span>' : ''}
+                ${e.note ? `<div class="ev-note">${esc(e.note)}</div>` : ''}</td>
+              <td>${eventDates(e)}</td>
+              <td class="num">${perDay}</td>
+              <td class="num">${pctText(e.lift_pct)}</td>
+              <td class="num">${vsLast}</td>
+              <td class="num">${action}</td>
+            </tr>`;
+          }).join('')
+        : `<tr><td colspan="6" class="empty">No events this ${d.unit}. Add one below.</td></tr>`;
+      if (list.length > LIMIT) {
+        $('event-rows').innerHTML += `<tr><td colspan="6"><button class="link" data-toggle-events>${showAllEvents ? 'Show fewer' : `Show all ${list.length} events`}</button></td></tr>`;
+      }
+
+      const hidden = d.events.filter((e) => e.hidden);
+      $('hidden-events').hidden = !hidden.length;
+      $('hidden-events').innerHTML = hidden.length
+        ? `Hidden: ${hidden.map((e) => `${esc(e.name)} <button class="link" data-show-event="${esc(e.key)}">Show</button>`).join(' · ')}`
+        : '';
+    }
+
+    function eventInsights(out) {
+      const d = perfData;
+      const withData = visibleEvents().filter((e) => e.during);
+      // Iligan City events get their own lines.
+      for (const e of withData.filter((e) => e.kind === 'iligan')) {
+        const vsNormal = e.lift_pct === null ? '' : `, ${Math.abs(e.lift_pct)}% ${e.lift_pct >= 0 ? 'above' : 'below'} normal days`;
+        const vsLast = e.last_year ? ` (last year ${money(e.last_year.per_day_cents)} a day)` : '';
+        out.push(`${markOf(e)} <strong>${esc(e.name)}</strong>: ${money(e.during.per_day_cents)} a day${vsNormal}${vsLast}.`);
+      }
+      const ranked = withData.filter((e) => e.kind !== 'iligan' && e.lift_pct !== null).sort((a, b) => b.lift_pct - a.lift_pct);
+      if (ranked.length) {
+        const top = ranked[0];
+        out.push(`Biggest holiday lift: <strong>${esc(top.name)}</strong>, ${pctText(top.lift_pct).trim()} vs normal days.`);
+        const low = ranked[ranked.length - 1];
+        if (ranked.length > 1 && low.lift_pct < 0) out.push(`Quietest holiday: <strong>${esc(low.name)}</strong>, ${Math.abs(low.lift_pct)}% below normal days. Consider shorter hours or less stock.`);
+      }
+      const next = visibleEvents().filter((e) => e.status === 'upcoming' && e.last_year)
+        .sort((a, b) => (a.kind === b.kind ? a.start.localeCompare(b.start) : a.kind === 'iligan' ? -1 : 1))[0];
+      if (next) {
+        out.push(`Coming up: ${markOf(next)} <strong>${esc(next.name)}</strong> (${eventDates(next)}). Last year it averaged ${money(next.last_year.per_day_cents)} a day. Plan stock and staff.`);
+      }
+      const pay = d.payday;
+      if (d.unit !== 'week' && pay?.payday_days >= 2 && pay.payday_per_day_cents !== null && pay.other_per_day_cents) {
+        const lift = pctOf(pay.payday_per_day_cents, pay.other_per_day_cents);
+        out.push(`Paydays (15th–16th and month-end–1st): ${money(pay.payday_per_day_cents)} a day vs ${money(pay.other_per_day_cents)} on other days (${pctText(lift).trim()}).`);
+      }
+    }
+
+    $('event-rows').addEventListener('click', async (e) => {
+      if (e.target.closest('[data-toggle-events]')) {
+        showAllEvents = !showAllEvents;
+        return renderEvents();
+      }
+      const hide = e.target.closest('[data-hide-event]'), del = e.target.closest('[data-delete-event]');
+      try {
+        if (hide) await api('/api/admin/events/visibility', { method: 'POST', body: { key: hide.dataset.hideEvent, hidden: true } });
+        else if (del) {
+          if (!confirm('Delete this event?')) return;
+          await api(`/api/admin/events/${del.dataset.deleteEvent}`, { method: 'DELETE' });
+        } else return;
+        loadPerformance();
+      } catch (err) { showToast(err.message); }
+    });
+    $('hidden-events').addEventListener('click', async (e) => {
+      const show = e.target.closest('[data-show-event]');
+      if (!show) return;
+      try {
+        await api('/api/admin/events/visibility', { method: 'POST', body: { key: show.dataset.showEvent, hidden: false } });
+        loadPerformance();
+      } catch (err) { showToast(err.message); }
+    });
+    $('event-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      $('event-error').textContent = '';
+      if (f.start.value && !f.end.value) f.end.value = f.start.value; // one-day event
+      try {
+        await api('/api/admin/events', { method: 'POST', body: {
+          name: f.name.value.trim(), start: f.start.value, end: f.end.value, kind: f.kind.value, note: f.note.value,
+        } });
+        showToast(`Added ${f.name.value.trim()}`);
+        perfAnchor = f.start.value; // jump to the event
+        f.reset();
+        loadPerformance();
+      } catch (err) { $('event-error').textContent = err.message; }
+    });
+
+    // ----- Bar chart (one series: gross sales) -----
+    function niceScale(max) {
+      if (max <= 0) return { top: 100_000, step: 25_000 }; // empty chart: ₱0–₱1,000
+      const rough = max / 4;
+      const pow = 10 ** Math.floor(Math.log10(rough));
+      const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= rough);
+      return { top: Math.ceil(max / step) * step, step };
+    }
+
+    function renderChart() {
+      const box = $('perf-chart');
+      const buckets = perfData.buckets;
+      const W = Math.max(box.clientWidth, 260), H = 240;
+      const m = { top: 22, right: 6, bottom: 30, left: 50 };
+      const plotW = W - m.left - m.right, plotH = H - m.top - m.bottom;
+      const band = plotW / buckets.length;
+      const barW = Math.max(2, Math.min(band - 2, band * 0.72, 48)); // always a gap between bars
+      const max = Math.max(0, ...buckets.map((b) => b.gross_cents));
+      const { top, step } = niceScale(max);
+      const y = (v) => m.top + plotH - (v / top) * plotH;
+      const today = formatDate(new Date());
+      const labelEvery = Math.ceil(buckets.length / Math.max(1, Math.floor(plotW / 30)));
+      const todayIndex = buckets.findIndex((b) => b.key === (perfData.unit === 'year' ? today.slice(0, 7) : today));
+
+      let svg = '';
+      for (let v = 0; v <= top + 1; v += step) {
+        svg += `<line class="grid${v === 0 ? ' base' : ''}" x1="${m.left}" x2="${W - m.right}" y1="${y(v)}" y2="${y(v)}"/>
+                <text class="axis" x="${m.left - 8}" y="${y(v) + 4}" text-anchor="end">${v === 0 ? '0' : shortMoney(v)}</text>`;
+      }
+      // Event days: a faint band behind the bar and a mark under it (★ Iligan, ● Philippines).
+      if (perfData.unit !== 'year') {
+        buckets.forEach((b, i) => {
+          const ev = eventsOn(b.key);
+          if (!ev.length) return;
+          svg += `<rect class="ev-band ${ev[0].kind}" x="${m.left + band * i}" y="${m.top}" width="${band}" height="${plotH}"/>`;
+          if (band >= 9) svg += `<text class="ev-tick ${ev[0].kind}" x="${m.left + band * i + band / 2}" y="${m.top + plotH + 11}" text-anchor="middle">${MARK[ev[0].kind]}</text>`;
+        });
+      }
+      buckets.forEach((b, i) => {
+        const cx = m.left + band * i + band / 2;
+        const isToday = perfData.unit === 'year' ? b.key === today.slice(0, 7) : b.key === today;
+        if (b.gross_cents > 0) {
+          const h = Math.max(1, plotH * (b.gross_cents / top));
+          const x = cx - barW / 2, yt = m.top + plotH - h, r = Math.min(4, barW / 2, h);
+          svg += `<path class="bar${i === activeBar ? ' active' : ''}" d="M${x},${yt + h}V${yt + r}Q${x},${yt} ${x + r},${yt}H${x + barW - r}Q${x + barW},${yt} ${x + barW},${yt + r}V${yt + h}Z"/>`;
+          if (b.gross_cents === max) {
+            svg += `<text class="peak" x="${cx}" y="${yt - 6}" text-anchor="middle">${shortMoney(b.gross_cents)}</text>`;
+          }
+        }
+        if (isToday || (i % labelEvery === 0 && (todayIndex < 0 || Math.abs(i - todayIndex) * band >= 26))) {
+          svg += `<text class="axis${isToday ? ' today' : ''}${b.future ? ' future' : ''}" x="${cx}" y="${H - 4}" text-anchor="middle">${esc(bucketShort(b, i))}</text>`;
+        }
+      });
+      // Invisible full-height targets so thin bars are easy to hover and tap.
+      buckets.forEach((b, i) => {
+        if (!b.future) svg += `<rect class="hit${i === activeBar ? ' on' : ''}" data-i="${i}" x="${m.left + band * i}" y="${m.top}" width="${band}" height="${plotH}"/>`;
+      });
+      box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img"
+        aria-label="${esc($('perf-chart-title').textContent)} for ${esc(periodTitle(perfData))}. Highest ${shortMoney(max)}.">${svg}</svg>`;
+      box._geom = { band, left: m.left, top: m.top };
+      if (activeBar !== null) showTip(activeBar);
+    }
+
+    function showTip(i) {
+      const b = perfData.buckets[i], tip = $('perf-tip'), box = $('perf-chart');
+      const action = perfData.unit === 'year' ? 'see the month' : 'open the day';
+      tip.innerHTML = `<strong>${esc(bucketLong(b))}</strong>
+        <div><span>Sales</span><b>${money(b.gross_cents)}</b></div>
+        <div><span>Receipts</span><b>${count(b.order_count)}</b></div>
+        <div><span>Average sale</span><b>${b.order_count ? money(Math.round(b.gross_cents / b.order_count)) : '–'}</b></div>
+        ${b.void_count ? `<div><span>Voids</span><b>${b.void_count}</b></div>` : ''}
+        ${eventsOn(b.key).map((e) => `<div class="tip-event">${markOf(e)} ${esc(e.name)}</div>`).join('')}
+        <em>${lastPointer === 'touch' ? 'Tap again' : 'Click'} to ${action}</em>`;
+      tip.hidden = false;
+      const { band, left } = box._geom;
+      const cx = box.offsetLeft + left + band * i + band / 2;
+      const half = tip.offsetWidth / 2;
+      tip.style.left = `${Math.min(Math.max(cx, half + 4), box.offsetLeft + box.clientWidth - half - 4)}px`;
+    }
+    function setActiveBar(i) {
+      if (activeBar === i) return;
+      activeBar = i;
+      $('perf-chart').querySelectorAll('.bar, .hit').forEach((el) => el.classList.remove('active', 'on'));
+      if (i === null) return void ($('perf-tip').hidden = true);
+      renderChart();
+    }
+    function openBucket(i) {
+      const b = perfData.buckets[i];
+      if (perfData.unit === 'year') return setUnit('month', `${b.key}-01`);
+      selectDate(b.key);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const chartBox = $('perf-chart');
+    chartBox.addEventListener('pointerdown', (e) => (lastPointer = e.pointerType));
+    chartBox.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      const hit = e.target.closest('.hit');
+      setActiveBar(hit ? Number(hit.dataset.i) : null);
+    });
+    chartBox.addEventListener('pointerleave', (e) => e.pointerType === 'mouse' && setActiveBar(null));
+    chartBox.addEventListener('click', (e) => {
+      const hit = e.target.closest('.hit');
+      if (!hit) return setActiveBar(null);
+      const i = Number(hit.dataset.i);
+      // On a touchscreen the first tap shows the numbers and the second opens it.
+      if (lastPointer !== 'mouse' && activeBar !== i) return setActiveBar(i);
+      openBucket(i);
+    });
+    new ResizeObserver(() => perfData && perfUnit !== 'calendar' && renderChart()).observe(chartBox);
+
+    // ----- Full calendar: every day of the year -----
+    let fcActive = null; // day key showing its details (first tap on a touchscreen)
+
+    function renderFullCalendar() {
+      if (perfUnit !== 'calendar' || !perfData?.days) return;
+      const days = perfData.days;
+      const today = formatDate(new Date());
+      const finished = days.filter((x) => x.gross_cents && x.key !== today).map((x) => x.gross_cents);
+      const min = Math.min(...finished), max = Math.max(...finished);
+      const byMonth = Array.from({ length: 12 }, () => []);
+      for (const day of days) byMonth[Number(day.key.slice(5, 7)) - 1].push(day);
+
+      $('fc-months').innerHTML = byMonth.map((list, m) => {
+        const first = parseDate(list[0].key);
+        const lead = (first.getDay() + 6) % 7; // weeks start on Monday
+        const monthTotal = list.reduce((n, x) => n + x.gross_cents, 0);
+        const cells = list.map((x) => {
+          const ev = eventsOn(x.key);
+          const names = ev.map((e) => e.name).join(', ');
+          const cls = [
+            `fc-day heat-${heatLevel(x.gross_cents, min, max)}`,
+            x.key === today ? 'today' : '',
+            lastData && x.key === lastData.date ? 'selected' : '',
+            x.key === fcActive ? 'active' : '',
+            ev.length ? `has-event ${ev[0].kind}` : '',
+          ].filter(Boolean).join(' ');
+          return `<button class="${cls}" data-day="${x.key}" ${x.future ? 'data-future' : ''}
+              aria-label="${esc(longDate(x.key))}: ${money(x.gross_cents)}, ${x.order_count} receipts${names ? `. ${esc(names)}` : ''}">
+            ${parseDate(x.key).getDate()}${ev.length ? `<i class="ev-mark ${ev[0].kind}" aria-hidden="true">${MARK[ev[0].kind]}</i>` : ''}
+          </button>`;
+        }).join('');
+        return `<section class="fc-month">
+          <header><button class="link fc-month-name" data-month="${list[0].key.slice(0, 7)}">${first.toLocaleDateString('en-PH', { month: 'long' })}</button>
+            <span class="muted">${monthTotal ? shortMoney(monthTotal) : ''}</span></header>
+          <div class="fc-grid">
+            ${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((w) => `<span class="fc-head">${w}</span>`).join('')}
+            ${'<span></span>'.repeat(lead)}${cells}
+          </div>
+        </section>`;
+      }).join('');
+      if (fcActive) showDayInfo(fcActive);
+    }
+
+    function showDayInfo(key) {
+      const x = perfData.days.find((d) => d.key === key);
+      if (!x) return;
+      const ev = eventsOn(key);
+      const sales = x.future ? 'Not yet' : `${money(x.gross_cents)} · ${plural(x.order_count, 'receipt')}`;
+      $('fc-info').innerHTML = `<strong>${esc(longDate(key))}</strong> · ${sales}
+        ${ev.map((e) => ` · ${markOf(e)} ${esc(e.name)}`).join('')}`;
+    }
+
+    const fcMonths = $('fc-months');
+    fcMonths.addEventListener('pointerdown', (e) => (lastPointer = e.pointerType));
+    fcMonths.addEventListener('pointerover', (e) => {
+      const day = e.target.closest('[data-day]');
+      if (day && e.pointerType === 'mouse') showDayInfo(day.dataset.day);
+    });
+    fcMonths.addEventListener('focusin', (e) => {
+      const day = e.target.closest('[data-day]');
+      if (day) showDayInfo(day.dataset.day);
+    });
+    fcMonths.addEventListener('click', (e) => {
+      const month = e.target.closest('[data-month]');
+      if (month) return setUnit('month', `${month.dataset.month}-01`);
+      const day = e.target.closest('[data-day]');
+      if (!day) return;
+      const key = day.dataset.day;
+      // On a touchscreen the first tap shows the day's numbers and the second opens it.
+      if (lastPointer !== 'mouse' && fcActive !== key) {
+        fcActive = key;
+        fcMonths.querySelectorAll('.fc-day.active').forEach((el) => el.classList.remove('active'));
+        day.classList.add('active');
+        return showDayInfo(key);
+      }
+      if (day.hasAttribute('data-future')) return showDayInfo(key);
+      fcActive = null;
+      selectDate(key);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    // ----- Calendar: every day (or month), shaded by sales -----
+    // 1 (quietest) to 5 (busiest) among the days or months that had sales; 0 for none.
+    function heatLevel(cents, min, max) {
+      if (!cents) return 0;
+      return max > min ? 1 + Math.max(0, Math.min(4, Math.floor(((cents - min) / (max - min)) * 5))) : 5;
+    }
+
+    function renderCalendar() {
+      if (!perfData) return;
+      const d = perfData;
+      const today = formatDate(new Date());
+      const currentKey = d.unit === 'year' ? today.slice(0, 7) : today;
+      // Shade against finished days or months, so one still under way doesn't skew the scale.
+      const finished = d.buckets.filter((b) => b.gross_cents && b.key !== currentKey).map((b) => b.gross_cents);
+      const sales = finished.length ? finished : d.buckets.map((b) => b.gross_cents).filter(Boolean);
+      const min = Math.min(...sales), max = Math.max(...sales);
+      const cell = (b, label, i) => {
+        const current = b.key === currentKey;
+        const selected = d.unit !== 'year' && lastData && b.key === lastData.date;
+        const ev = eventsOn(b.key);
+        const names = ev.map((e) => e.name).join(', ');
+        const marks = d.unit === 'year'
+          ? ['iligan', 'national'].map((k) => ev.filter((e) => e.kind === k).length).map((n, j) => (n ? `<span class="ev-mark ${j ? 'national' : 'iligan'}">${j ? '●' : '★'}${n}</span>` : '')).join('')
+          : ev.map((e) => `<span class="ev-mark ${e.kind}">${MARK[e.kind]}</span>`).slice(0, 3).join('');
+        return `<button class="cal-cell heat-${heatLevel(b.gross_cents, min, max)}${current ? ' today' : ''}${selected ? ' selected' : ''}${ev.length ? ` has-event ${ev[0].kind}` : ''}"
+            data-i="${i}" ${b.future ? 'disabled' : ''} title="${esc(names)}"
+            aria-label="${esc(bucketLong(b))}: ${money(b.gross_cents)}, ${b.order_count} receipts${names ? `. Events: ${esc(names)}` : ''}">
+          <span class="cal-day">${esc(label)}</span>
+          <span class="cal-amount">${b.gross_cents ? shortMoney(b.gross_cents) : b.future ? '' : '–'}</span>
+          ${marks ? `<span class="cal-events" aria-hidden="true">${marks}</span>` : ''}
+        </button>`;
+      };
+      let html;
+      if (d.unit === 'year') {
+        html = `<div class="cal-grid months">${d.buckets.map((b, i) => cell(b, bucketShort(b, i), i)).join('')}</div>`;
+      } else {
+        const lead = (parseDate(d.start).getDay() + 6) % 7; // weeks start on Monday
+        html = `<div class="cal-grid days">
+          ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((w) => `<span class="cal-head">${w}</span>`).join('')}
+          ${'<span></span>'.repeat(lead)}
+          ${d.buckets.map((b, i) => cell(b, String(parseDate(b.key).getDate()), i)).join('')}
+        </div>`;
+      }
+      $('perf-calendar').innerHTML = html;
+    }
+    $('perf-calendar').addEventListener('click', (e) => {
+      const cell = e.target.closest('.cal-cell');
+      if (cell && !cell.disabled) openBucket(Number(cell.dataset.i));
+    });
+
+    // ===== Staff & sign-in (Face ID, Touch ID, fingerprint) =====
+    const canUsePasskeys = window.isSecureContext && window.PublicKeyCredential && window.SimpleWebAuthnBrowser;
+    const SCREEN_NAME = { pos: 'Cashier', barista: 'Barista', kitchen: 'Kitchen', inventory: 'Inventory' };
+    const shortDate = (iso) => new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+    const lastSeen = (iso) => (iso ? `${shortDate(iso)}, ${timeOf(iso)}` : '–');
+    let security = null;
+
+    $('sec-https').hidden = canUsePasskeys;
+    $('owner-passkey').disabled = !canUsePasskeys;
+
+    const deviceItem = (p) => `
+      <li><span>${esc(p.device || 'Device')} <small class="muted">· added ${shortDate(p.created_at)}${p.last_used_at ? ` · used ${lastSeen(p.last_used_at)}` : ''}</small></span>
+        <button class="link danger-link" data-remove-passkey="${esc(p.id)}" >Forget device</button></li>`;
+
+    function renderSecurity() {
+      const { staff, passkeys, pin } = security;
+      $('staff-rows').innerHTML = staff.length
+        ? staff.map((m) => {
+            const devices = passkeys.filter((p) => p.staff_id === m.id);
+            return `<tr>
+              <td><strong>${esc(m.name)}</strong></td>
+              <td>${SCREEN_NAME[m.role]}</td>
+              <td>${devices.length ? `<ul class="device-list compact">${devices.map(deviceItem).join('')}</ul>` : '<span class="pill new">not set up</span>'}</td>
+              <td>${lastSeen(m.last_used_at)}</td>
+              <td class="num"><button class="btn small" data-code="${m.id}">Setup code</button>
+                <button class="btn small danger-outline" data-remove-staff="${m.id}">Remove</button></td>
+            </tr>`;
+          }).join('')
+        : '<tr><td colspan="5" class="empty">No staff yet. Add each cashier, barista, kitchen and inventory worker below.</td></tr>';
+
+      const owner = passkeys.filter((p) => p.role === 'admin');
+      $('owner-devices').innerHTML = owner.length ? owner.map(deviceItem).join('') : '<li class="muted">Password only so far</li>';
+      for (const role of ['pos', 'barista', 'kitchen', 'inventory']) {
+        $(`pin-${role}`).checked = pin[role];
+        // No BARISTA_PIN in .env: nothing to allow, so staff use Face ID / fingerprint (or the owner's login).
+        $(`pin-${role}`).disabled = security.pinSet?.[role] === false;
+        $(`pin-${role}`).parentElement.title = $(`pin-${role}`).disabled ? 'No PIN set for this screen in .env' : '';
+      }
+    }
+
+    async function loadSecurity() {
+      try {
+        security = await api('/api/admin/security');
+        renderSecurity();
+      } catch {}
+    }
+
+    function showSetupCode({ name, code, expiresAt }) {
+      $('setup-code').hidden = false;
+      $('setup-code').innerHTML = `
+        <div>Setup code for <strong>${esc(name)}</strong></div>
+        <div class="code">${code.slice(0, 4)} ${code.slice(4)}</div>
+        <div class="hint">On the tablet, open the login page → <em>First time on this device? Set it up</em> → type this code → use Face ID or fingerprint.
+          Works once, until ${timeOf(expiresAt)}.</div>
+        <button class="link" data-hide-code>Hide</button>`;
+    }
+    $('setup-code').addEventListener('click', (e) => {
+      if (e.target.closest('[data-hide-code]')) $('setup-code').hidden = true;
+    });
+
+    $('staff-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      $('staff-error').textContent = '';
+      try {
+        const added = await api('/api/admin/staff', { method: 'POST', body: { name: form.name.value.trim(), role: form.role.value } });
+        form.reset();
+        showSetupCode(added);
+        loadSecurity();
+      } catch (err) {
+        $('staff-error').textContent = err.message;
+      }
+    });
+
+    $('staff-rows').addEventListener('click', async (e) => {
+      const codeBtn = e.target.closest('[data-code]');
+      const removeBtn = e.target.closest('[data-remove-staff]');
+      try {
+        if (codeBtn) showSetupCode(await api(`/api/admin/staff/${codeBtn.dataset.code}/code`, { method: 'POST' }));
+        if (removeBtn) {
+          const member = security.staff.find((m) => m.id === Number(removeBtn.dataset.removeStaff));
+          if (!confirm(`Remove ${member.name}? They are signed out everywhere and their devices stop working.`)) return;
+          await api(`/api/admin/staff/${member.id}`, { method: 'DELETE' });
+          showToast(`${member.name} removed`);
+          loadSecurity();
+        }
+      } catch (err) {
+        $('staff-error').textContent = err.message;
+      }
+    });
+
+    document.querySelector('.security').addEventListener('click', async (e) => {
+      const button = e.target.closest('[data-remove-passkey]');
+      if (!button || !confirm('Remove Face ID / fingerprint sign-in from this device?')) return;
+      try {
+        await api(`/api/admin/passkeys/${encodeURIComponent(button.dataset.removePasskey)}`, { method: 'DELETE' });
+        loadSecurity();
+      } catch (err) {
+        showToast(err.message);
+      }
+    });
+
+    $('owner-passkey').addEventListener('click', async () => {
+      const status = $('owner-status');
+      status.className = 'status';
+      status.textContent = '';
+      try {
+        const { options, challengeId } = await api('/api/admin/passkeys/options', { method: 'POST' });
+        const response = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON: options });
+        await api('/api/passkeys/register', { method: 'POST', body: { challengeId, response, device: deviceName() } });
+        status.className = 'status ok';
+        status.textContent = 'Done. Next time, sign in with Face ID / Touch ID.';
+        loadSecurity();
+      } catch (err) {
+        status.className = 'status error';
+        status.textContent = err.name === 'InvalidStateError' ? 'This device is already set up.'
+          : err.name === 'NotAllowedError' ? 'Cancelled.' : err.message;
+      }
+    });
+
+    for (const role of ['pos', 'barista', 'kitchen', 'inventory']) {
+      $(`pin-${role}`).addEventListener('change', async (e) => {
+        const on = e.target.checked;
+        if (!on && !security.passkeys.some((p) => p.role === role)) {
+          if (!confirm(`No ${SCREEN_NAME[role].toLowerCase()} has Face ID / fingerprint set up yet. Turn off the PIN anyway? (Your owner password still works.)`)) {
+            e.target.checked = true;
+            return;
+          }
+        }
+        try {
+          security.pin = await api('/api/admin/sign-in-settings', { method: 'POST', body: { [role]: on } });
+          showToast(`Shared ${SCREEN_NAME[role].toLowerCase()} PIN ${on ? 'allowed' : 'turned off'}`);
+        } catch (err) {
+          e.target.checked = !on;
+          showToast(err.message);
+        }
+      });
+    }
+
+    function deviceName() {
+      const ua = navigator.userAgent;
+      if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
+      if (/iPhone/.test(ua)) return 'iPhone';
+      if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
+      if (/Macintosh/.test(ua)) return 'Mac';
+      if (/Windows/.test(ua)) return 'Windows PC';
+      return 'Device';
+    }
+
+    // ===== Menu approvals =====
+    const pageTitle = document.title;
+    let knownRequestIds = null; // null until the first load, so old requests don't alert
+
+    // A system notification, for when the panel is open but in another tab or app.
+    function notify(text) {
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        new Notification('Café Ambiente – approval needed', { body: text, icon: '/brand/icon-192.png', tag: 'menu-request' });
+      }
+    }
+
+    function renderRequests(requests) {
+      $('requests').hidden = requests.length === 0;
+      $('requests-count').textContent = `${requests.length} waiting`;
+      document.title = requests.length ? `(${requests.length}) ${pageTitle}` : pageTitle;
+      $('requests-list').innerHTML = requests.map((r) => `
+        <form class="request" data-id="${r.id}">
+          <label>Name <input name="name" value="${esc(r.name)}" maxlength="60" required></label>
+          <label>Category <input name="category" value="${esc(r.category)}" maxlength="30" required></label>
+          <label>Price <input name="price" value="${(r.price_cents / 100).toFixed(2)}" inputmode="decimal" required></label>
+          <div class="request-meta">${r.sends_to_kitchen ? 'Kitchen item' : 'No kitchen ticket'} · requested ${timeOf(r.requested_at)}</div>
+          <div class="request-actions">
+            <button type="button" class="btn ghost" data-decision="reject">Reject</button>
+            <button type="submit" class="btn primary" data-decision="approve">Approve</button>
+          </div>
+          <p class="status error" role="alert"></p>
+        </form>`).join('');
+    }
+
+    async function loadRequests() {
+      try {
+        const requests = await api('/api/admin/menu-requests');
+        if (knownRequestIds) {
+          const fresh = requests.filter((r) => !knownRequestIds.has(r.id));
+          if (fresh.length) {
+            const text = fresh.length === 1 ? `New menu item to approve: ${fresh[0].name}` : `${fresh.length} new menu items to approve`;
+            showToast(text);
+            notify(text);
+          }
+        }
+        knownRequestIds = new Set(requests.map((r) => r.id));
+        // Don't wipe what the owner is typing if they're mid-edit.
+        if (!$('requests-list').contains(document.activeElement)) renderRequests(requests);
+        else $('requests-count').textContent = `${requests.length} waiting`;
+      } catch {}
+    }
+
+    async function decide(form, decision) {
+      const error = form.querySelector('.status');
+      const body = { decision };
+      if (decision === 'approve') {
+        const priceCents = parseMoney(form.price.value);
+        if (!(priceCents > 0)) return (error.textContent = 'Enter a valid price');
+        Object.assign(body, { name: form.name.value.trim(), category: form.category.value.trim(), priceCents });
+      }
+      form.querySelectorAll('button').forEach((b) => (b.disabled = true));
+      try {
+        await api(`/api/admin/menu-requests/${form.dataset.id}`, { method: 'POST', body });
+        document.activeElement?.blur();
+        showToast(decision === 'approve' ? `"${body.name}" is now on the menu` : 'Request rejected');
+        await loadRequests();
+      } catch (err) {
+        error.textContent = err.message;
+        form.querySelectorAll('button').forEach((b) => (b.disabled = false));
+      }
+    }
+
+    $('requests-list').addEventListener('submit', (e) => {
+      e.preventDefault();
+      decide(e.target, 'approve');
+    });
+    $('requests-list').addEventListener('click', (e) => {
+      const button = e.target.closest('[data-decision="reject"]');
+      if (button) decide(button.closest('form'), 'reject');
+    });
+
+    // ===== Inventory =====
+    const qty = (n) => Number(Number(n).toFixed(3)).toLocaleString('en-PH', { maximumFractionDigits: 3 });
+    const STOCK_KIND = { added: 'added', count: 'counted', received: 'received', used: 'used / wasted', edited: 'changed' };
+    let inventory = null;
+
+    function renderInventory() {
+      const { items, log } = inventory;
+      const low = items.filter((i) => i.low);
+      $('inv-count').textContent = low.length ? `${low.length} to buy` : `${items.length} item${items.length === 1 ? '' : 's'}`;
+      $('inv-count').className = low.length ? 'pill void' : 'pill';
+      $('to-buy').hidden = low.length === 0;
+      $('to-buy-list').innerHTML = low.map((i) => `
+        <li><strong>${esc(i.name)}</strong>
+          <span>${qty(i.quantity)} ${esc(i.unit)} left · reorder below ${qty(i.threshold)} ${esc(i.unit)}</span></li>`).join('');
+
+      // Don't redraw the table while the owner is typing a new level.
+      if (!$('inv-rows').contains(document.activeElement)) {
+        $('inv-rows').innerHTML = items.length
+          ? items.map((i) => `
+              <tr class="${i.low ? 'inv-low' : ''}">
+                <td>${esc(i.name)}${i.low ? ' <span class="pill void">low</span>' : ''}</td>
+                <td class="num">${qty(i.quantity)} ${esc(i.unit)}</td>
+                <td><input class="inv-threshold" data-threshold="${i.id}" value="${qty(i.threshold)}" inputmode="decimal" aria-label="Reorder level for ${esc(i.name)}"> ${esc(i.unit)}</td>
+                <td class="muted">${esc(i.updated_by ?? '')} · ${shortDate(i.updated_at)}, ${timeOf(i.updated_at)}</td>
+                <td class="num"><button class="btn small danger-outline" data-remove-item="${i.id}">Remove</button></td>
+              </tr>`).join('')
+          : '<tr><td colspan="5" class="empty">No stock items yet. Add them on the Inventory screen.</td></tr>';
+      }
+      $('inv-log').innerHTML = log.length
+        ? log.map((l) => {
+            const change = l.kind === 'edited' ? '' : ` ${l.change > 0 ? '+' : l.change < 0 ? '−' : ''}${qty(Math.abs(l.change))} → ${qty(l.quantity_after)} ${esc(l.unit)}`;
+            return `<li><span class="log-time">${timeOf(l.at)}</span><span class="log-actor">${esc(actorOf(l))}</span>
+              <span>${esc(l.name)} ${STOCK_KIND[l.kind] ?? l.kind}${change}${l.note ? ` · ${esc(l.note)}` : ''}</span></li>`;
+          }).join('')
+        : '<li class="empty">No changes yet</li>';
+    }
+
+    async function loadInventory() {
+      try {
+        inventory = await api('/api/admin/inventory');
+        renderInventory();
+      } catch {}
+    }
+
+    $('inv-rows').addEventListener('change', async (e) => {
+      const input = e.target.closest('[data-threshold]');
+      if (!input) return;
+      const item = inventory.items.find((i) => i.id === Number(input.dataset.threshold));
+      const threshold = Number(input.value.replace(/,/g, '').trim());
+      if (!input.value.trim() || !Number.isFinite(threshold) || threshold < 0) {
+        input.value = qty(item.threshold);
+        return showToast('Enter a number for the reorder level');
+      }
+      try {
+        await api(`/api/admin/inventory/${item.id}`, { method: 'PATCH', body: { threshold } });
+        input.blur();
+        showToast(`${item.name}: reorder below ${qty(threshold)} ${item.unit}`);
+        loadInventory();
+      } catch (err) {
+        input.value = qty(item.threshold);
+        showToast(err.message);
+      }
+    });
+    $('inv-rows').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches('[data-threshold]')) e.target.blur();
+    });
+    $('inv-rows').addEventListener('focusout', () => setTimeout(() => {
+      if (!$('inv-rows').contains(document.activeElement)) renderInventory();
+    }));
+    $('inv-rows').addEventListener('click', async (e) => {
+      const button = e.target.closest('[data-remove-item]');
+      if (!button) return;
+      const item = inventory.items.find((i) => i.id === Number(button.dataset.removeItem));
+      if (!confirm(`Stop tracking ${item.name}? Its history is kept.`)) return;
+      try {
+        await api(`/api/admin/inventory/${item.id}`, { method: 'DELETE' });
+        showToast(`Stopped tracking ${item.name}`);
+        loadInventory();
+      } catch (err) {
+        showToast(err.message);
+      }
+    });
+
+    // An item just dropped below its reorder level.
+    socket.on('inventory.low', (item) => {
+      const text = `Low stock: ${item.name} is at ${qty(item.quantity)} ${item.unit} (reorder below ${qty(item.threshold)})`;
+      showToast(text);
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        new Notification('Café Ambiente – time to buy', { body: text, icon: '/brand/icon-192.png', tag: `stock-${item.id}` });
+      }
+    });
+    socket.on('inventory.updated', loadInventory);
+
+    // Offer system notifications once (browsers need a tap to ask).
+    if ('Notification' in window && Notification.permission === 'default') {
+      $('alerts').hidden = false;
+      $('alerts').addEventListener('click', async () => {
+        await Notification.requestPermission();
+        $('alerts').hidden = true;
+      });
+    }
+
+    // ===== Live updates =====
+    socket.on('connect', () => { load(); loadHistory(); loadRequests(); loadPerformance(); loadSecurity(); loadInventory(); });
+    socket.on('security.updated', () => { loadSecurity(); load(); });
+    for (const event of ['order.created', 'order.updated', 'ticket.updated']) socket.on(event, refresh);
+    socket.on('menu.requested', () => { loadRequests(); refresh(); });
+    socket.on('menu.updated', () => { loadRequests(); refresh(); });
+    socket.on('order.updated', (o) => {
+      if (o.status === 'voided') showToast(`Receipt #${label(o)} was voided: ${o.void_reason}`);
+    });
+  </script>
+</body>
+</html>
