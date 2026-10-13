@@ -26,7 +26,7 @@ cp .env.example .env   # then fill in the PINs, admin password and session secre
 npm run dev            # React/Vite at http://localhost:5173, API server at :3000
 ```
 
-The frontend is React + TypeScript and builds to `dist/`. For a production-style local run, use `npm run build` followed by `npm start`. The backend continues to serve the same role routes and API. Menu photos are resized in the browser, saved under `DATA_DIR/uploads/menu`, and remain available after deploys when `DATA_DIR` points at a persistent volume.
+The frontend is React + TypeScript and builds to `dist/`. For a production-style local run, use `npm run build` followed by `npm start`. The backend continues to serve the same role routes and API. The Café Ambiente menu is defined in `menu-catalog.js`. On first startup with this version, the server retires the old choices and adds the new ones while retaining past sales and receipts. Menu items are text-only.
 
 The server prints the addresses to use, for example `http://192.168.1.20:3000`.
 
