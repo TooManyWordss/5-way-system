@@ -23,8 +23,10 @@ Cashiers only see and change today. Every void, edit and menu decision is writte
 ```bash
 npm install
 cp .env.example .env   # then fill in the PINs, admin password and session secret
-npm run dev            # restarts automatically when you edit server.js
+npm run dev            # React/Vite at http://localhost:5173, API server at :3000
 ```
+
+The frontend is React + TypeScript and builds to `dist/`. For a production-style local run, use `npm run build` followed by `npm start`. The backend continues to serve the same role routes and API. Menu photos are resized in the browser, saved under `DATA_DIR/uploads/menu`, and remain available after deploys when `DATA_DIR` points at a persistent volume.
 
 The server prints the addresses to use, for example `http://192.168.1.20:3000`.
 

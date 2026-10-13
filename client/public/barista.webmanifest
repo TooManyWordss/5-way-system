@@ -1,0 +1,14 @@
+{
+  "name": "Café Ambiente Barista",
+  "short_name": "Barista",
+  "start_url": "/barista",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#f7f1ea",
+  "theme_color": "#6a3b1f",
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

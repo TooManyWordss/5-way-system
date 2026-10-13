@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
+import multer from 'multer';
 import { builtInEvents } from './events.js';
 import {
   generateAuthenticationOptions,
@@ -159,6 +160,8 @@ function dayRange(date = localDate()) {
 // On the cloud host, DATA_DIR points at a persistent volume so sales survive redeploys.
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
+const MENU_IMAGE_DIR = path.join(DATA_DIR, 'uploads', 'menu');
+fs.mkdirSync(MENU_IMAGE_DIR, { recursive: true });
 const db = new DatabaseSync(path.join(DATA_DIR, 'data.db'));
 db.exec(`
   PRAGMA foreign_keys = ON;
@@ -229,6 +232,7 @@ addMissingColumns('menu_items', {
   requested_at: 'TEXT',
   reviewed_at: 'TEXT',
   unavailable_since: 'TEXT', // set while staff have marked it unavailable (sold out); NULL = can be sold
+  image_url: 'TEXT',
 });
 addMissingColumns('orders', {
   status: "TEXT NOT NULL DEFAULT 'paid'", // paid | voided
@@ -479,7 +483,11 @@ app.use(express.json());
 
 // Used by the hosting provider to check the app is up.
 app.get('/healthz', (req, res) => res.json({ ok: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use('/brand', express.static(path.join(__dirname, 'client', 'public', 'brand')));
+app.use('/fonts', express.static(path.join(__dirname, 'client', 'public', 'fonts')));
+app.use('/uploads/menu', express.static(MENU_IMAGE_DIR, { maxAge: '7d', immutable: true }));
+app.use(express.static(path.join(__dirname, 'dist')));
+app.get(['/login', '/login.html'], (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
 app.get('/vendor/webauthn.js', (req, res) =>
   res.sendFile(path.join(__dirname, 'node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js')));
 
@@ -492,8 +500,8 @@ const PAGE = { pos: 'pos', barista: 'pos', kitchen: 'kitchen', inventory: 'inven
 for (const [role, page] of Object.entries(PAGE)) {
   app.get(`/${role}`, (req, res) => {
     const current = readSession(req.headers.cookie);
-    if (current && can(current.role, role)) return res.sendFile(path.join(__dirname, 'pages', `${page}.html`));
-    res.redirect(`/login.html?role=${role}`);
+    if (current && can(current.role, role)) return res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.redirect(`/login?role=${role}`);
   });
 }
 
@@ -531,6 +539,19 @@ app.use('/api/pos', requireRole(...SELLERS));
 app.use('/api/kitchen', requireRole('kitchen'));
 app.use('/api/inventory', requireRole(...STOCK_KEEPERS));
 app.use('/api/admin', requireRole('admin'));
+
+const imageExtensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+const uploadMenuImage = multer({
+  storage: multer.diskStorage({
+    destination: MENU_IMAGE_DIR,
+    filename: (_req, file, done) => done(null, `${crypto.randomUUID()}${imageExtensions[file.mimetype] || '.img'}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, done) => {
+    if (!imageExtensions[file.mimetype]) return done(new Error('Choose a JPG, PNG, or WebP image'));
+    done(null, true);
+  },
+});
 
 // ---------- Face ID, Touch ID and fingerprint (passkeys) ----------
 // The device checks the face or finger; the server only checks a signature against the
@@ -789,16 +810,24 @@ app.post('/api/admin/sign-in-settings', (req, res) => {
 
 // ---------- Menu ----------
 
+app.post('/api/menu/images', (req, res, next) => {
+  uploadMenuImage.single('image')(req, res, (error) => {
+    if (error) return res.status(400).json({ error: error.message || 'Could not upload image' });
+    if (!req.file) return res.status(400).json({ error: 'Choose an image to upload' });
+    res.status(201).json({ imageUrl: `/uploads/menu/${req.file.filename}` });
+  });
+});
+
 app.get('/api/menu', (req, res) => {
   const items = db
     .prepare(
-      `SELECT id, name, category, price_cents, unavailable_since IS NULL AS available FROM menu_items
+      `SELECT id, name, category, price_cents, image_url, unavailable_since IS NULL AS available FROM menu_items
         WHERE active = 1 AND status = 'approved' ORDER BY category, id`
     )
     .all();
   // Shown greyed out on the POS so staff can see what's waiting.
   const pending = db
-    .prepare("SELECT id, name, category, price_cents FROM menu_items WHERE status = 'pending' ORDER BY id")
+    .prepare("SELECT id, name, category, price_cents, image_url FROM menu_items WHERE status = 'pending' ORDER BY id")
     .all();
   res.json({ taxRate: TAX_RATE, receipt: stationOf(req, req.query.station) === 'barista' ? BARISTA_RECEIPT : RECEIPT, items, pending });
 });
@@ -824,20 +853,23 @@ function menuItemProblem({ name, category, priceCents }, ignoreId = 0) {
 
 // Staff propose a new item from the POS. The owner's own requests skip the queue.
 app.post('/api/menu/requests', (req, res) => {
-  const { name, category, priceCents, sendsToKitchen } = req.body ?? {};
+  const { name, category, priceCents, sendsToKitchen, imageUrl } = req.body ?? {};
   const problem = menuItemProblem({ name, category, priceCents });
   if (problem) return res.status(400).json({ error: problem });
+  if (imageUrl != null && (typeof imageUrl !== 'string' || !imageUrl.startsWith('/uploads/menu/'))) {
+    return res.status(400).json({ error: 'Upload a menu image using this screen' });
+  }
 
   const status = req.role === 'admin' ? 'approved' : 'pending';
   const now = new Date().toISOString();
   const id = Number(
     db
       .prepare(
-        `INSERT INTO menu_items (name, category, price_cents, sends_to_kitchen, status, requested_by, requested_at, reviewed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO menu_items (name, category, price_cents, sends_to_kitchen, status, requested_by, requested_at, reviewed_at, image_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(name.trim(), category.trim(), priceCents, sendsToKitchen === false ? 0 : 1, status, req.role, now,
-        status === 'approved' ? now : null)
+        status === 'approved' ? now : null, imageUrl ?? null)
       .lastInsertRowid
   );
   const item = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(id);
@@ -1598,6 +1630,14 @@ app.post('/api/admin/menu-requests/:id', (req, res) => {
 
   io.to(['pos', 'barista', 'admin']).emit('menu.updated');
   res.json(db.prepare('SELECT * FROM menu_items WHERE id = ?').get(item.id));
+});
+
+// React client routes fall through to Vite's built entry point. API misses stay JSON 404s.
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  const entry = path.join(__dirname, 'dist', 'index.html');
+  if (fs.existsSync(entry)) return res.sendFile(entry);
+  res.status(503).send('Frontend is not built yet. Run npm run build.');
 });
 
 app.use((err, req, res, next) => {
