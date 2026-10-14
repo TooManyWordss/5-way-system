@@ -111,6 +111,8 @@ Each cashier and kitchen worker can sign in as themselves, so every sale, edit a
 4. Once everyone is set up, untick **Allow the shared POS PIN** (and kitchen). The owner password always works on every screen.
 5. The owner can add Face ID / Touch ID for the admin panel with **Set up Face ID / Touch ID on this device**.
 
+To change a shared screen PIN, open that store's **Admin → Staff & sign-in → Shared PINs**, then choose **Set PIN** or **Change PIN** beside POS, Barista, Kitchen, or Inventory. Enter and confirm a 4–12 digit PIN. The new PIN works for the next sign-in; the previous PIN stops working for new sign-ins. Each store keeps its PINs in its own database, so later changes do not require editing `.env` or restarting the server. The `.env` PINs supply the initial values until the owner sets replacements here. Existing signed-in devices keep their current sessions.
+
 Removing a staff member signs them out everywhere straight away.
 
 > On a shared iPad, Face ID / Touch ID accepts any face or finger enrolled in *that iPad's* settings. Touch ID holds up to 5 fingers, so each cashier can add their own finger in iPad Settings. For strict one-person-one-key, give each person a fingerprint security key (e.g. YubiKey Bio) or let them sign in from their own phone.
@@ -119,7 +121,7 @@ Removing a staff member signs them out everywhere straight away.
 
 | Setting | Purpose |
 |---|---|
-| `POS_PIN`, `KITCHEN_PIN`, `ADMIN_PASSWORD` | Codes for each screen |
+| `POS_PIN`, `KITCHEN_PIN`, `ADMIN_PASSWORD` | Initial screen PINs and owner password; staff PINs can later be changed in Admin |
 | `SESSION_SECRET` | Signs logins. Changing it logs every device out. |
 | `TAX_RATE` | e.g. `0.12` for 12% |
 | `TZ` | Time zone that decides when "today" starts, `Asia/Manila` |
@@ -151,7 +153,7 @@ open `/rairock/pos` and add menu items; owner additions are approved immediately
 The supplied RaiRock logo and storefront photo are in `client/public/brands/rairock/`.
 Its colors are defined under `html[data-store="rairock"]` in `client/src/styles.css`.
 Set `RAIROCK_POS_PIN`, `RAIROCK_BARISTA_PIN`, `RAIROCK_KITCHEN_PIN`, and
-`RAIROCK_INVENTORY_PIN` in `.env` for separate device codes. If omitted, they use
+`RAIROCK_INVENTORY_PIN` in `.env` for separate initial device codes, or set them from RaiRock's admin screen. If omitted, they start with
 the corresponding Ambiente codes. `RAIROCK_ADMIN_PASSWORD` optionally overrides
 the shared owner password. Receipt header and footer can also be set with
 `RAIROCK_RECEIPT_HEADER` and `RAIROCK_RECEIPT_FOOTER`.

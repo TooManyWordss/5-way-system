@@ -1,8 +1,8 @@
 const scopePath = new URL(self.registration.scope).pathname;
 const isRairock = scopePath.startsWith('/rairock/');
-const CACHE = `five-way-${isRairock ? 'rairock' : 'ambiente'}-v2`;
+const CACHE = `five-way-${isRairock ? 'rairock' : 'ambiente'}-v3`;
 const APP_SHELL = isRairock
-  ? ['/rairock/', '/rairock/brand/logo.png', '/rairock/brand/background.png']
+  ? ['/rairock/', '/rairock/brand/logo.png', '/rairock/brand/icon-512.png', '/rairock/brand/background.png']
   : ['/', '/brand/logo.png', '/brand/mark.png', '/brand/icon-192.png', '/brand/apple-touch-icon.png'];
 self.addEventListener('install', (event) => event.waitUntil(
   caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())

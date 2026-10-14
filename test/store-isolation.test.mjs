@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -57,13 +58,23 @@ test('RaiRock orders and credentials stay separate while the owner can see both 
     assert.equal(manifest.start_url, '/rairock/pos');
     assert.equal((await call('/rairock/brand/logo.png')).headers.get('content-type'), 'image/png');
     assert.equal((await call('/rairock/brand/background.png')).headers.get('content-type'), 'image/png');
+    assert.equal((await call('/rairock/api/admin/pins/pos', '', 'POST', { pin: '2468' })).status, 401);
+    assert.equal((await call('/rairock/api/admin/pins/pos', rairockOwner, 'POST', { pin: 'abc' })).status, 400);
+    assert.equal((await call('/rairock/api/admin/pins/pos', rairockOwner, 'POST', { pin: '2468' })).status, 200);
+    assert.equal((await call('/rairock/api/login', '', 'POST', { role: 'pos', secret: '5678' })).status, 401);
+    assert.equal((await call('/api/login', '', 'POST', { role: 'pos', secret: '1234' })).status, 200);
+    const rairockDb = new DatabaseSync(path.join(dir, 'rairock.db'));
+    const savedPin = rairockDb.prepare("SELECT value FROM settings WHERE key = 'pin_pos_hash'").get()?.value;
+    rairockDb.close();
+    assert.match(savedPin, /^scrypt:[a-f0-9]+:[a-f0-9]+$/);
+    assert.equal(savedPin.includes('2468'), false);
     assert.equal((await (await call('/rairock/api/menu', rairockOwner)).json()).items.length, 0);
     const newItem = await call('/rairock/api/menu/requests', rairockOwner, 'POST',
       { name: 'Grilled Fish', category: 'Seafood', priceCents: 25000, sendsToKitchen: 1 });
     assert.equal(newItem.status, 201);
     const item = await newItem.json();
     assert.equal((await (await call('/api/menu', ambienteOwner)).json()).items.some((i) => i.name === 'Grilled Fish'), false);
-    const rairockPos = await login('/rairock', 'pos', '5678');
+    const rairockPos = await login('/rairock', 'pos', '2468');
     const sale = await call('/rairock/api/orders', rairockPos, 'POST', {
       clientId: 'rairock-test-order', station: 'cashier', createdAt: new Date().toISOString(),
       cashTenderedCents: 30000, items: [{ menuItemId: item.id, qty: 1 }],

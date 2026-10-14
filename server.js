@@ -51,7 +51,7 @@ const BARISTA_RECEIPT = {
   footer: splitLines(process.env.BARISTA_RECEIPT_FOOTER || 'Listen for your number at the bar.|Enjoy your coffee!'),
 };
 
-// Each screen has its own code, set in .env. The admin can open every screen.
+// Environment codes bootstrap each screen; owner changes are stored per store.
 // BARISTA_PIN and INVENTORY_PIN are optional: without one, that screen opens with Face ID / fingerprint or the owner's login.
 const SECRETS = {
   pos: process.env.POS_PIN,
@@ -60,9 +60,20 @@ const SECRETS = {
   kitchen: process.env.KITCHEN_PIN,
   admin: process.env.ADMIN_PASSWORD,
 };
-const secretFor = (role) => currentStore() === 'rairock'
+const environmentSecretFor = (role) => currentStore() === 'rairock'
   ? process.env[`RAIROCK_${role.toUpperCase()}_${role === 'admin' ? 'PASSWORD' : 'PIN'}`] || SECRETS[role]
   : SECRETS[role];
+const pinHashFor = (role) => role === 'admin' ? null : getSetting(`pin_${role}_hash`, null);
+const secretFor = (role) => pinHashFor(role) || environmentSecretFor(role);
+function matchesSecret(role, value) {
+  if (typeof value !== 'string') return false;
+  const hash = pinHashFor(role);
+  if (!hash) return !!environmentSecretFor(role) && safeEqual(value, environmentSecretFor(role));
+  const [scheme, salt, expected] = hash.split(':');
+  if (scheme !== 'scrypt' || !salt || !expected) return false;
+  const actual = crypto.scryptSync(value, salt, 64).toString('hex');
+  return safeEqual(actual, expected);
+}
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const missing = ['POS_PIN', 'KITCHEN_PIN', 'ADMIN_PASSWORD', 'SESSION_SECRET'].filter((k) => !process.env[k]);
 if (missing.length) {
@@ -527,7 +538,7 @@ app.use('/fonts', express.static(path.join(__dirname, 'client', 'public', 'fonts
 app.get('/:role.webmanifest', (req, res, next) => {
   const role = req.params.role;
   if (req.store !== 'rairock' || !Object.hasOwn(PAGE, role)) return next();
-  const icon = '/rairock/brand/logo.png';
+  const icon = '/rairock/brand/icon-512.png';
   res.type('application/manifest+json').json({
     name: `RaiRock Seafoods ${role.toUpperCase()}`,
     short_name: `RaiRock ${role}`,
@@ -537,7 +548,7 @@ app.get('/:role.webmanifest', (req, res, next) => {
     orientation: 'landscape',
     background_color: '#F6F2E8',
     theme_color: '#08740C',
-    icons: [{ src: icon, sizes: '960x960', type: 'image/png', purpose: 'any maskable' }],
+    icons: [{ src: icon, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }],
   });
 });
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -575,7 +586,7 @@ app.post('/api/login', (req, res) => {
     return res.status(429).json({ error: `Too many wrong attempts. Try again in ${minutes} min.` });
   }
 
-  if (typeof secret !== 'string' || !safeEqual(secret, secretFor(role))) {
+  if (!matchesSecret(role, secret)) {
     const count = (failure?.count ?? 0) + 1;
     loginFailures.set(key, count >= 5 ? { count: 0, lockedUntil: Date.now() + 5 * 60_000 } : { count });
     return res.status(401).json({ error: role === 'admin' ? 'Wrong password' : 'Wrong PIN' });
@@ -842,9 +853,23 @@ app.delete('/api/admin/passkeys/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Shared PINs per staff screen: allowed by the owner, and whether one is set in .env at all.
+// Shared PINs per staff screen: owner changes override the initial .env value.
 const PIN_ROLES = ['pos', 'barista', 'kitchen', 'inventory'];
 const pinSettings = () => Object.fromEntries(PIN_ROLES.map((role) => [role, pinAllowed(role)]));
+
+app.post('/api/admin/pins/:role', (req, res) => {
+  const role = req.params.role;
+  const pin = req.body?.pin;
+  if (!PIN_ROLES.includes(role)) return res.status(400).json({ error: 'Choose a staff screen' });
+  if (typeof pin !== 'string' || !/^\d{4,12}$/.test(pin)) {
+    return res.status(400).json({ error: 'PIN must be 4 to 12 digits' });
+  }
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(pin, salt, 64).toString('hex');
+  setSetting(`pin_${role}_hash`, `scrypt:${salt}:${hash}`);
+  logActivity(req, 'settings.changed', `Changed the shared ${ROLE_LABEL[role].toLowerCase()} PIN`);
+  res.json({ ok: true });
+});
 
 // Turn a shared staff-screen PIN on or off.
 app.post('/api/admin/sign-in-settings', (req, res) => {
