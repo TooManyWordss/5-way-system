@@ -3,5 +3,7 @@ dist/
 uploads/
 data.db
 data.db-*
+rairock.db
+rairock.db-*
 .DS_Store
 .env

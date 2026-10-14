@@ -130,8 +130,32 @@ Removing a staff member signs them out everywhere straight away.
 | `BARISTA_RECEIPT_TITLE`, `BARISTA_RECEIPT_HEADER`, `BARISTA_RECEIPT_FOOTER` | The barista bar's receipt text |
 | `RP_ID`, `RP_ORIGIN` | Optional: the address passkeys belong to, if it differs from the one the browser uses |
 
-Branding: the logo files are in `public/brand/` (`logo.png` full logo, `mark.png` round emblem, app icons), colours are the variables at the top of `public/style.css`, fonts are Cinzel and Nunito in `public/fonts/` (SIL Open Font License).
+Branding: the app uses the images in `client/public/brand/` for Ambiente and `client/public/brands/rairock/` for RaiRock. The colors are in `client/src/styles.css`; fonts are in `client/public/fonts/` (SIL Open Font License).
 
-Currency is pesos (₱): `CURRENCY` at the top of `public/common.js` and the `CURRENCY` variable on the server. The menu is seeded in `server.js` on the first run; delete `data.db` to re-seed it.
+Currency is pesos (₱): the React client formats PHP and the server uses `CURRENCY`. Ambiente's menu is seeded from `menu-catalog.js`; RaiRock starts empty. Keep `data.db` and `rairock.db` backed up because they contain sales and store settings.
 
 Requires Node.js 22.13 or newer (uses the built-in `node:sqlite`).
+
+## RaiRock Seafoods (second store)
+
+One server and codebase now serve two separate stores. Café Ambiente keeps its existing
+`data.db` and URLs (`/pos`, `/barista`, `/kitchen`, `/inventory`, `/admin`). RaiRock uses
+`rairock.db` and `/rairock/pos`, `/rairock/barista`, `/rairock/kitchen`,
+`/rairock/inventory`, `/rairock/admin`. Each store has its own menu, orders, receipt
+numbers, kitchen tickets, inventory, staff, passkeys, sign-in settings and live updates.
+The two sessions can coexist in one browser. The Ambiente admin shows today's sales
+for both stores at the top and links to each store's detailed admin screen.
+
+RaiRock starts with an empty menu. The owner can sign in to `/rairock/admin`, then
+open `/rairock/pos` and add menu items; owner additions are approved immediately.
+The supplied RaiRock logo and storefront photo are in `client/public/brands/rairock/`.
+Its colors are defined under `html[data-store="rairock"]` in `client/src/styles.css`.
+Set `RAIROCK_POS_PIN`, `RAIROCK_BARISTA_PIN`, `RAIROCK_KITCHEN_PIN`, and
+`RAIROCK_INVENTORY_PIN` in `.env` for separate device codes. If omitted, they use
+the corresponding Ambiente codes. `RAIROCK_ADMIN_PASSWORD` optionally overrides
+the shared owner password. Receipt header and footer can also be set with
+`RAIROCK_RECEIPT_HEADER` and `RAIROCK_RECEIPT_FOOTER`.
+
+Printing still uses the device's browser print screen. Automatic printer and cash
+drawer control needs the selected POS device, printer, and drawer models before a
+compatible connection can be built and tested.

@@ -8,6 +8,7 @@ import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Server } from 'socket.io';
 import { builtInEvents } from './events.js';
 import { menuCatalog } from './menu-catalog.js';
@@ -19,6 +20,13 @@ import {
 } from '@simplewebauthn/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STORES = {
+  ambiente: { name: 'Café Ambiente', receipt: 'Café Ambiente' },
+  rairock: { name: 'RaiRock Seafoods', receipt: 'RaiRock Seafoods' },
+};
+const storeContext = new AsyncLocalStorage();
+const currentStore = () => storeContext.getStore() || 'ambiente';
+const storePath = (req, path) => `${req.store === 'rairock' ? '/rairock' : ''}${path}`;
 const PORT = Number(process.env.PORT || 3000);
 // Sales tax as a fraction, e.g. TAX_RATE=0.12 for 12%. Defaults to no tax.
 const TAX_RATE = Number(process.env.TAX_RATE || 0);
@@ -30,6 +38,11 @@ const RECEIPT = {
   header: splitLines(process.env.RECEIPT_HEADER || ''),
   footer: splitLines(process.env.RECEIPT_FOOTER || 'Thank you! Please come again.'),
 };
+const receiptForStore = (station) => currentStore() === 'rairock'
+  ? { name: 'RaiRock Seafoods', header: splitLines(process.env.RAIROCK_RECEIPT_HEADER || ''),
+      footer: splitLines(process.env.RAIROCK_RECEIPT_FOOTER || 'Thank you! Please come again.'),
+      ...(station === 'barista' ? { title: 'Barista' } : {}) }
+  : station === 'barista' ? BARISTA_RECEIPT : RECEIPT;
 // The barista bar prints its own receipts: own title, numbering (B-0001…) and closing lines.
 const BARISTA_RECEIPT = {
   ...RECEIPT,
@@ -47,6 +60,9 @@ const SECRETS = {
   kitchen: process.env.KITCHEN_PIN,
   admin: process.env.ADMIN_PASSWORD,
 };
+const secretFor = (role) => currentStore() === 'rairock'
+  ? process.env[`RAIROCK_${role.toUpperCase()}_${role === 'admin' ? 'PASSWORD' : 'PIN'}`] || SECRETS[role]
+  : SECRETS[role];
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const missing = ['POS_PIN', 'KITCHEN_PIN', 'ADMIN_PASSWORD', 'SESSION_SECRET'].filter((k) => !process.env[k]);
 if (missing.length) {
@@ -86,31 +102,37 @@ const STAFF_SESSION_HOURS = 16;
 // Session cookie format: "<role>.<expiry ms>.<staff id, 0 for a shared PIN or the owner>.<signature>"
 function makeSession(role, staffId = 0) {
   const ms = staffId ? STAFF_SESSION_HOURS * 3_600_000 : SESSION_DAYS[role] * 86_400_000;
-  const value = `${role}.${Date.now() + ms}.${staffId}`;
+  const value = `${role}.${currentStore()}.${Date.now() + ms}.${staffId}`;
   return { token: `${value}.${sign(value)}`, maxAgeSeconds: Math.round(ms / 1000) };
 }
 
 // Returns { role, staff } or null. Staff sessions end as soon as the owner removes that person.
 function readSession(cookieHeader = '') {
+  const cookieName = currentStore() === 'rairock' ? 'session_rairock' : 'session';
   const cookie = cookieHeader
     .split(';')
     .map((part) => part.trim())
-    .find((part) => part.startsWith('session='));
+    .find((part) => part.startsWith(`${cookieName}=`));
   if (!cookie) return null;
-  const parts = cookie.slice('session='.length).split('.');
-  if (parts.length < 3 || parts.length > 4) return null; // 3 parts: sessions made before staff sign-in existed
-  const [role, expires] = parts;
+  const parts = cookie.slice(`${cookieName}=`.length).split('.');
+  if (parts.length < 3 || parts.length > 5) return null;
+  const [role, second] = parts;
+  const modern = Object.hasOwn(STORES, second);
+  const store = modern ? second : 'ambiente';
+  const expires = modern ? parts[2] : second;
   const signature = parts.at(-1);
   if (!isRole(role) || !signature || !safeEqual(signature, sign(parts.slice(0, -1).join('.')))) return null;
+  if (store !== currentStore()) return null;
   if (!(Number(expires) > Date.now())) return null;
-  const staffId = parts.length === 4 ? Number(parts[2]) : 0;
+  const staffId = modern ? Number(parts[3]) : parts.length === 4 ? Number(parts[2]) : 0;
   if (!staffId) return { role, staff: null };
   const staff = db.prepare('SELECT id, name, role FROM staff WHERE id = ? AND active = 1').get(staffId);
   return staff ? { role, staff } : null;
 }
 
 function sessionCookie(req, value, maxAgeSeconds) {
-  return `session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${req.secure ? '; Secure' : ''}`;
+  const cookieName = req.store === 'rairock' ? 'session_rairock' : 'session';
+  return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${req.secure ? '; Secure' : ''}`;
 }
 
 function startSession(req, res, role, staffId = 0) {
@@ -160,7 +182,18 @@ function dayRange(date = localDate()) {
 // On the cloud host, DATA_DIR points at a persistent volume so sales survive redeploys.
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
-const db = new DatabaseSync(path.join(DATA_DIR, 'data.db'));
+const databases = {
+  ambiente: new DatabaseSync(path.join(DATA_DIR, 'data.db')),
+  rairock: new DatabaseSync(path.join(DATA_DIR, 'rairock.db')),
+};
+// Existing queries use the database selected for the current HTTP request.
+// Ambiente keeps its original data.db; RaiRock starts in a separate empty file.
+const db = new Proxy({}, { get: (_target, property) => {
+  const database = databases[currentStore()];
+  const value = database[property];
+  return typeof value === 'function' ? value.bind(database) : value;
+} });
+function initSchema() {
 db.exec(`
   PRAGMA foreign_keys = ON;
   PRAGMA busy_timeout = 5000; -- wait for a moment instead of failing if the file is briefly locked
@@ -362,6 +395,7 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_inventory_log_item ON inventory_log(item_id);
 `);
+}
 
 const getSetting = (key, fallback) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? fallback;
 const setSetting = (key, value) =>
@@ -370,7 +404,9 @@ const setSetting = (key, value) =>
 const pinAllowed = (role) => role === 'admin' || getSetting(`pin_${role}`, '1') === '1';
 
 // Apply the supplied menu once to existing databases. Keep retired rows for old receipts.
+function seedMenu() {
 const menuVersion = getSetting('menu_catalog_version', '');
+if (currentStore() === 'rairock') return; // The owner will add RaiRock's menu when it is supplied.
 if (menuVersion !== 'ambiente-2026-10-oz') {
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -393,6 +429,8 @@ if (menuVersion !== 'ambiente-2026-10-oz') {
     throw error;
   }
 }
+}
+for (const store of Object.keys(STORES)) storeContext.run(store, () => { initSchema(); seedMenu(); });
 
 function attachItems(orders) {
   if (orders.length === 0) return orders;
@@ -467,16 +505,41 @@ function saleTime(createdAt) {
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
+const storeBroadcast = (roles) => io.to((Array.isArray(roles) ? roles : [roles]).map((role) => `${currentStore()}:${role}`));
+const notifyOwnerOverview = () => { if (currentStore() === 'rairock') io.to('ambiente:admin').emit('stores.updated'); };
 
 // Only set TRUST_PROXY when running behind a hosting proxy (it supplies the real client IP and HTTPS).
 if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
 
+// RaiRock's pages and API use /rairock/...; legacy Ambiente addresses remain valid.
+app.use((req, res, next) => {
+  const isRairock = req.url === '/rairock' || req.url.startsWith('/rairock/');
+  req.store = isRairock ? 'rairock' : 'ambiente';
+  if (isRairock) req.url = req.url.slice('/rairock'.length) || '/';
+  storeContext.run(req.store, next);
+});
 app.use(express.json());
 
 // Used by the hosting provider to check the app is up.
 app.get('/healthz', (req, res) => res.json({ ok: true }));
-app.use('/brand', express.static(path.join(__dirname, 'client', 'public', 'brand')));
+app.use('/brand', (req, res, next) => express.static(path.join(__dirname, 'client', 'public', req.store === 'rairock' ? 'brands/rairock' : 'brand'))(req, res, next));
 app.use('/fonts', express.static(path.join(__dirname, 'client', 'public', 'fonts')));
+app.get('/:role.webmanifest', (req, res, next) => {
+  const role = req.params.role;
+  if (req.store !== 'rairock' || !Object.hasOwn(PAGE, role)) return next();
+  const icon = '/rairock/brand/logo.png';
+  res.type('application/manifest+json').json({
+    name: `RaiRock Seafoods ${role.toUpperCase()}`,
+    short_name: `RaiRock ${role}`,
+    start_url: `/rairock/${role}`,
+    scope: '/rairock/',
+    display: role === 'kitchen' ? 'fullscreen' : 'standalone',
+    orientation: 'landscape',
+    background_color: '#F6F2E8',
+    theme_color: '#08740C',
+    icons: [{ src: icon, sizes: '960x960', type: 'image/png', purpose: 'any maskable' }],
+  });
+});
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get(['/login', '/login.html'], (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
 app.get('/vendor/webauthn.js', (req, res) =>
@@ -495,7 +558,7 @@ for (const [role, page] of Object.entries(PAGE)) {
       res.setHeader('Cache-Control', 'no-store');
       return res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     }
-    res.redirect(`/login?role=${role}`);
+    res.redirect(storePath(req, `/login?role=${role}`));
   });
 }
 
@@ -503,16 +566,16 @@ app.post('/api/login', (req, res) => {
   const { role, secret } = req.body ?? {};
   if (!isRole(role)) return res.status(400).json({ error: 'Unknown screen' });
   if (!pinAllowed(role)) return res.status(403).json({ error: 'PIN sign-in is turned off. Use Face ID or fingerprint.' });
-  if (!SECRETS[role]) return res.status(403).json({ error: 'No PIN is set for this screen. Use Face ID or fingerprint, or ask the owner.' });
+  if (!secretFor(role)) return res.status(403).json({ error: 'No PIN is set for this screen. Use Face ID or fingerprint, or ask the owner.' });
 
-  const key = `${req.ip}|${role}`;
+  const key = `${req.store}|${req.ip}|${role}`;
   const failure = loginFailures.get(key);
   if (failure?.lockedUntil > Date.now()) {
     const minutes = Math.ceil((failure.lockedUntil - Date.now()) / 60_000);
     return res.status(429).json({ error: `Too many wrong attempts. Try again in ${minutes} min.` });
   }
 
-  if (typeof secret !== 'string' || !safeEqual(secret, SECRETS[role])) {
+  if (typeof secret !== 'string' || !safeEqual(secret, secretFor(role))) {
     const count = (failure?.count ?? 0) + 1;
     loginFailures.set(key, count >= 5 ? { count: 0, lockedUntil: Date.now() + 5 * 60_000 } : { count });
     return res.status(401).json({ error: role === 'admin' ? 'Wrong password' : 'Wrong PIN' });
@@ -520,7 +583,7 @@ app.post('/api/login', (req, res) => {
 
   loginFailures.delete(key);
   startSession(req, res, role);
-  res.json({ role, home: `/${role}` });
+  res.json({ role, home: storePath(req, `/${role}`) });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -553,22 +616,22 @@ const challenges = new Map(); // id -> { challenge, expires, ...details }
 function rememberChallenge(challenge, details = {}) {
   for (const [id, c] of challenges) if (c.expires < Date.now()) challenges.delete(id);
   const id = crypto.randomBytes(16).toString('base64url');
-  challenges.set(id, { challenge, expires: Date.now() + 5 * 60_000, ...details });
+  challenges.set(id, { challenge, expires: Date.now() + 5 * 60_000, store: currentStore(), ...details });
   return id;
 }
 function takeChallenge(id) {
   const c = challenges.get(id);
   challenges.delete(id);
-  return c && c.expires > Date.now() ? c : null;
+  return c && c.store === currentStore() && c.expires > Date.now() ? c : null;
 }
 
 // Setup codes: the owner makes one for a staff member, who types it on their tablet once.
 const setupCodes = new Map(); // code -> { staffId, expires }
 function makeSetupCode(staffId) {
-  for (const [code, c] of setupCodes) if (c.staffId === staffId || c.expires < Date.now()) setupCodes.delete(code);
+  for (const [code, c] of setupCodes) if ((c.store === currentStore() && c.staffId === staffId) || c.expires < Date.now()) setupCodes.delete(code);
   const code = String(crypto.randomInt(0, 100_000_000)).padStart(8, '0');
   const expires = Date.now() + 15 * 60_000;
-  setupCodes.set(code, { staffId, expires });
+  setupCodes.set(code, { staffId, expires, store: currentStore() });
   return { code, expiresAt: new Date(expires).toISOString() };
 }
 
@@ -578,7 +641,7 @@ async function registrationOptions(req, { role, staff }) {
   const name = staff ? staff.name : 'Owner';
   const existing = db.prepare('SELECT id, transports FROM passkeys WHERE role = ? AND staff_id IS ?').all(role, staff?.id ?? null);
   const options = await generateRegistrationOptions({
-    rpName: RECEIPT.name,
+    rpName: STORES[currentStore()].name,
     rpID: relyingParty(req).rpID,
     userName: `${name} (${ROLE_LABEL[role]})`,
     userDisplayName: name,
@@ -599,7 +662,7 @@ app.get('/api/login-options', (req, res) => {
         WHERE (p.role = ? OR p.role = 'admin') AND (p.staff_id IS NULL OR s.active = 1)`
     )
     .get(role);
-  res.json({ pin: pinAllowed(role) && !!SECRETS[role], passkeys: n > 0 });
+  res.json({ pin: pinAllowed(role) && !!secretFor(role), passkeys: n > 0 });
 });
 
 // Who is signed in on this device.
@@ -615,12 +678,12 @@ app.get('/api/me', (req, res) => {
 
 // Staff, step 1: the setup code from the owner starts registering this device.
 app.post('/api/passkeys/setup', async (req, res) => {
-  const key = `${req.ip}|setup`;
+  const key = `${req.store}|${req.ip}|setup`;
   const failure = loginFailures.get(key);
   if (failure?.lockedUntil > Date.now()) return res.status(429).json({ error: 'Too many wrong codes. Try again in a few minutes.' });
 
   const entry = setupCodes.get(String(req.body?.code ?? '').replace(/\D/g, ''));
-  const staff = entry && entry.expires > Date.now()
+  const staff = entry && entry.store === req.store && entry.expires > Date.now()
     ? db.prepare('SELECT * FROM staff WHERE id = ? AND active = 1').get(entry.staffId)
     : null;
   if (!staff) {
@@ -644,7 +707,7 @@ app.post('/api/passkeys/register', async (req, res) => {
   const c = takeChallenge(req.body?.challengeId);
   if (!c || c.purpose !== 'register') return res.status(400).json({ error: 'Setup timed out. Start again.' });
   if (c.role === 'admin' && readSession(req.headers.cookie)?.role !== 'admin') return res.status(401).json({ error: 'Please log in' });
-  if (c.staffId && !setupCodes.has(c.code)) return res.status(400).json({ error: 'That code was already used or has expired.' });
+  if (c.staffId && setupCodes.get(c.code)?.store !== req.store) return res.status(400).json({ error: 'That code was already used or has expired.' });
 
   const { rpID, origin } = relyingParty(req);
   let verification;
@@ -674,8 +737,8 @@ app.post('/api/passkeys/register', async (req, res) => {
     const staff = db.prepare('SELECT id, name, role FROM staff WHERE id = ?').get(c.staffId);
     logActivity({ role: staff.role, staff }, 'passkey.added', `${staff.name} set up fingerprint / Face ID sign-in${device ? ` on ${device}` : ''}`);
     startSession(req, res, staff.role, staff.id);
-    io.to('admin').emit('security.updated');
-    return res.json({ home: `/${staff.role}`, name: staff.name });
+    storeBroadcast('admin').emit('security.updated');
+    return res.json({ home: storePath(req, `/${staff.role}`), name: staff.name });
   }
   logActivity({ role: 'admin' }, 'passkey.added', `Owner set up fingerprint / Face ID sign-in${device ? ` on ${device}` : ''}`);
   res.json({ ok: true });
@@ -722,7 +785,7 @@ app.post('/api/passkeys/login', async (req, res) => {
     .run(verification.authenticationInfo.newCounter, new Date().toISOString(), passkey.id);
   if (staff) logActivity({ role: staff.role, staff }, 'signed.in', `${staff.name} signed in`);
   startSession(req, res, passkey.role, staff?.id ?? 0);
-  res.json({ home: `/${wanted}`, name: staff?.name ?? 'Owner' });
+  res.json({ home: storePath(req, `/${wanted}`), name: staff?.name ?? 'Owner' });
 });
 
 // ---------- Admin: staff and sign-in settings ----------
@@ -738,7 +801,7 @@ app.get('/api/admin/security', (req, res) => {
   const passkeys = db
     .prepare('SELECT id, staff_id, role, device, created_at, last_used_at FROM passkeys ORDER BY created_at')
     .all();
-  res.json({ staff, passkeys, pin: pinSettings(), pinSet: Object.fromEntries(PIN_ROLES.map((role) => [role, !!SECRETS[role]])) });
+  res.json({ staff, passkeys, pin: pinSettings(), pinSet: Object.fromEntries(PIN_ROLES.map((role) => [role, !!secretFor(role)])) });
 });
 
 app.post('/api/admin/staff', (req, res) => {
@@ -766,7 +829,7 @@ app.delete('/api/admin/staff/:id', (req, res) => {
   if (!staff) return res.status(404).json({ error: 'Staff member not found' });
   db.prepare('UPDATE staff SET active = 0 WHERE id = ?').run(staff.id);
   db.prepare('DELETE FROM passkeys WHERE staff_id = ?').run(staff.id);
-  for (const [code, c] of setupCodes) if (c.staffId === staff.id) setupCodes.delete(code);
+  for (const [code, c] of setupCodes) if (c.store === req.store && c.staffId === staff.id) setupCodes.delete(code);
   logActivity(req, 'staff.removed', `Removed ${staff.name}`);
   for (const socket of io.sockets.sockets.values()) if (socket.data.staffId === staff.id) socket.disconnect(true);
   res.json({ ok: true });
@@ -806,7 +869,7 @@ app.get('/api/menu', (req, res) => {
   const pending = db
     .prepare("SELECT id, name, category, price_cents FROM menu_items WHERE status = 'pending' ORDER BY id")
     .all();
-  res.json({ taxRate: TAX_RATE, receipt: stationOf(req, req.query.station) === 'barista' ? BARISTA_RECEIPT : RECEIPT, items, pending });
+  res.json({ taxRate: TAX_RATE, receipt: receiptForStore(stationOf(req, req.query.station)), items, pending });
 });
 
 // Checks a proposed or edited menu item. Returns an error message, or null if it's fine.
@@ -849,8 +912,8 @@ app.post('/api/menu/requests', (req, res) => {
   logActivity(req, status === 'pending' ? 'menu.requested' : 'menu.added',
     `${status === 'pending' ? 'Requested' : 'Added'} menu item ${item.name} (${item.category}) at ${money(item.price_cents)}`);
 
-  if (status === 'pending') io.to('admin').emit('menu.requested', item);
-  io.to(['pos', 'barista', 'admin']).emit('menu.updated');
+  if (status === 'pending') storeBroadcast('admin').emit('menu.requested', item);
+  storeBroadcast(['pos', 'barista', 'admin']).emit('menu.updated');
   res.status(201).json(item);
 });
 
@@ -885,9 +948,9 @@ function logStock(req, item, kind, change, note = null) {
 
 // Tells every screen the stock changed, and alerts the owner when an item has just dropped below its level.
 function announceStock(req, before, after) {
-  io.to([...STOCK_KEEPERS, 'admin']).emit('inventory.updated', { ...after, low: isLow(after) });
+  storeBroadcast([...STOCK_KEEPERS, 'admin']).emit('inventory.updated', { ...after, low: isLow(after) });
   if (isLow(after) && !(before && isLow(before))) {
-    io.to('admin').emit('inventory.low', { ...after, low: true });
+    storeBroadcast('admin').emit('inventory.low', { ...after, low: true });
     logActivity(req, 'inventory.low', `Low stock: ${after.name} is at ${qtyText(after)} (reorder below ${qtyText(after, after.threshold)})`);
   }
 }
@@ -966,7 +1029,7 @@ app.delete('/api/admin/inventory/:id', (req, res) => {
   if (!item) return res.status(404).json({ error: 'Item not found' });
   db.prepare('UPDATE inventory_items SET active = 0 WHERE id = ?').run(item.id);
   logActivity(req, 'inventory.removed', `Stopped tracking ${item.name}`);
-  io.to([...STOCK_KEEPERS, 'admin']).emit('inventory.updated', { ...item, active: 0 });
+  storeBroadcast([...STOCK_KEEPERS, 'admin']).emit('inventory.updated', { ...item, active: 0 });
   res.json({ ok: true });
 });
 
@@ -980,13 +1043,15 @@ app.post('/api/menu/:id/availability', (req, res) => {
   if (available === (item.unavailable_since === null)) return res.json({ id: item.id, available });
   db.prepare('UPDATE menu_items SET unavailable_since = ? WHERE id = ?').run(available ? null : new Date().toISOString(), item.id);
   logActivity(req, available ? 'menu.available' : 'menu.unavailable', `Marked ${item.name} ${available ? 'available again' : 'unavailable'}`);
-  io.to(['pos', 'barista', 'admin']).emit('menu.updated');
+  storeBroadcast(['pos', 'barista', 'admin']).emit('menu.updated');
   res.json({ id: item.id, available });
 });
 
 // ---------- Sales ----------
 
-const findSellable = db.prepare("SELECT * FROM menu_items WHERE id = ? AND active = 1 AND status = 'approved'");
+const findSellable = {
+  get(id) { return db.prepare("SELECT * FROM menu_items WHERE id = ? AND active = 1 AND status = 'approved'").get(id); },
+};
 
 // POS or barista bar -> server: ring up a cash sale.
 app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
@@ -1064,7 +1129,8 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
   }
 
   const order = loadOrder(orderId);
-  io.to(['kitchen', 'admin', 'pos', 'barista']).emit('order.created', order);
+  storeBroadcast(['kitchen', 'admin', 'pos', 'barista']).emit('order.created', order);
+  notifyOwnerOverview();
   res.status(201).json(order);
 });
 
@@ -1168,7 +1234,8 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
   }
 
   const updated = loadOrder(order.id);
-  io.to(['kitchen', 'admin', 'pos', 'barista']).emit('order.updated', updated);
+  storeBroadcast(['kitchen', 'admin', 'pos', 'barista']).emit('order.updated', updated);
+  notifyOwnerOverview();
   res.json({ order: updated, differenceCents: total - order.total_cents });
 });
 
@@ -1188,7 +1255,8 @@ app.post('/api/orders/:id/void', requireRole(...SELLERS), (req, res) => {
   logActivity(req, 'order.voided', `Voided receipt #${order.receipt_label} (${money(order.total_cents)}): ${reason}`, order.id);
 
   const updated = loadOrder(order.id);
-  io.to(['kitchen', 'admin', 'pos', 'barista']).emit('order.updated', updated);
+  storeBroadcast(['kitchen', 'admin', 'pos', 'barista']).emit('order.updated', updated);
+  notifyOwnerOverview();
   res.json(updated);
 });
 
@@ -1224,7 +1292,7 @@ app.patch('/api/orders/:id/kitchen', requireRole('kitchen'), (req, res) => {
   }
 
   const updated = loadOrder(order.id);
-  io.to(['kitchen', 'admin']).emit('ticket.updated', updated);
+  storeBroadcast(['kitchen', 'admin']).emit('ticket.updated', updated);
   res.json(updated);
 });
 
@@ -1236,6 +1304,18 @@ app.get('/api/admin/day', (req, res) => {
   if (!isDate(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
   const logs = db.prepare('SELECT * FROM activity_log WHERE business_date = ? ORDER BY id DESC').all(date);
   res.json({ ...dayReport(date), logs });
+});
+
+// The Ambiente owner sees both stores without merging their operational data.
+app.get('/api/admin/stores', (req, res) => {
+  if (req.store !== 'ambiente') return res.status(403).json({ error: 'Open the Ambiente owner dashboard' });
+  const date = req.query.date ?? localDate();
+  if (!isDate(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const stores = Object.entries(STORES).map(([id, store]) => ({
+    id, name: store.name,
+    summary: storeContext.run(id, () => dayReport(date).summary),
+  }));
+  res.json({ date, stores });
 });
 
 // Daily performance for the last N days (default 30), newest first. Quiet days are left out.
@@ -1601,7 +1681,7 @@ app.post('/api/admin/menu-requests/:id', (req, res) => {
     return res.status(400).json({ error: 'decision must be approve or reject' });
   }
 
-  io.to(['pos', 'barista', 'admin']).emit('menu.updated');
+  storeBroadcast(['pos', 'barista', 'admin']).emit('menu.updated');
   res.json(db.prepare('SELECT * FROM menu_items WHERE id = ?').get(item.id));
 });
 
@@ -1621,13 +1701,15 @@ app.use((err, req, res, next) => {
 // Live updates need a login too. Each screen joins a room named after its role,
 // and each broadcast above names the rooms that need it.
 io.use((socket, next) => {
-  const session = readSession(socket.handshake.headers.cookie);
+  const store = socket.handshake.auth?.store === 'rairock' ? 'rairock' : 'ambiente';
+  const session = storeContext.run(store, () => readSession(socket.handshake.headers.cookie));
   if (!session) return next(new Error('unauthorized'));
+  socket.data.store = store;
   socket.data.role = session.role;
   socket.data.staffId = session.staff?.id ?? 0;
   next();
 });
-io.on('connection', (socket) => socket.join(socket.data.role));
+io.on('connection', (socket) => socket.join(`${socket.data.store}:${socket.data.role}`));
 
 // Close the database cleanly when stopped or restarted (npm run dev restarts on every edit),
 // so the next start never finds it locked.
@@ -1635,7 +1717,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
     io.close();
     httpServer.close();
-    db.close();
+    for (const database of Object.values(databases)) database.close();
     process.exit(0);
   });
 }
@@ -1648,6 +1730,6 @@ httpServer.listen(PORT, () => {
     .map((a) => a.address);
   console.log(`5 Way System running on port ${PORT}`);
   for (const host of ['localhost', ...lanHosts]) {
-    console.log(`  http://${host}:${PORT}   (POS: /pos  Barista: /barista  Kitchen: /kitchen  Inventory: /inventory  Admin: /admin)`);
+    console.log(`  http://${host}:${PORT}   (Ambiente: /pos, /admin · RaiRock: /rairock/pos, /rairock/admin)`);
   }
 });

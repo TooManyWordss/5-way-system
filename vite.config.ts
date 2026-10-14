@@ -11,8 +11,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
+      '/rairock/api': { target: 'http://localhost:3000', changeOrigin: true },
       '/socket.io': { target: 'http://localhost:3000', ws: true },
       '/brand': { target: 'http://localhost:3000', changeOrigin: true },
+      '/rairock/brand': { target: 'http://localhost:3000', changeOrigin: true },
+      '/rairock/sw.js': { target: 'http://localhost:3000', changeOrigin: true },
+      '^/rairock/.*\\.webmanifest$': { target: 'http://localhost:3000', changeOrigin: true },
       '/fonts': { target: 'http://localhost:3000', changeOrigin: true },
       '/uploads': { target: 'http://localhost:3000', changeOrigin: true },
     },
