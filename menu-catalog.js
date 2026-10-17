@@ -1,3 +1,5 @@
+import { getMenuDescription } from './menu-descriptions.js';
+
 // Each listed size is a separate POS item so the correct price reaches the cart and receipt.
 // Where the source menu gives two Hot Tea Regular prices without sizes, keep both as price options.
 const sections = [
@@ -89,7 +91,7 @@ Double Cheese Burger|699`],
 Salted Caramel Coffee Mousse|399
 Pistachio Cake|299
 Blueberry Cheesecake|198
-Chocolate Cake|173
+Chocolate Cake|181
 Ambiente Supreme Cake|173
 Pain Au Chocolat|160
 Roasted Cinnamon Croissant Roll|399
@@ -98,6 +100,44 @@ Mango Creme Cake|198
 Triple Truffle Cake|173
 Black Forest Cake|173
 Croissant|130`],
+  ['Seafood / Vegetables', '', `
+Char Grilled Sweet Corn|299
+Seafood Sotanghon|389
+Ambiente Salad|399
+Smoked Caesar Salad|479
+Fried Calamari|459
+Camaron Rebosado|459
+Kinilaw Waray|459
+Whole Roasted Garlic Butter Shrimps|499
+Grilled Tuna Belly|549
+Char Grilled Squid|549
+Crispy Skin Salmon|589
+Steamed Salmon|589`],
+  ['Pasta', '', `
+Spicy Spaghetti Marinara|379
+Slow Cooked Spaghetti Bolognese|399
+Fettuccine Alfredo Chicken|399
+Baked Three Cheese Macaroni|399
+Spaghetti Seafood Marinara|399
+Spaghetti Seafood Pasta|399
+Spaghetti Shrimp Pasta|399
+Penne Chicken Pesto Pasta|399
+Fried Shrimp Pasta|449
+Spaghetti and Artisanal Meatballs|499`],
+  ['Pica-Pica / Soups', '', `
+Mushroom Soup|399
+Truffle Parmesan Fries|499
+Fiesta Strips|399
+Chicken Strips|399
+Mozzarella Sticks|329
+Fried Fish Strips|399
+1 Cup Rice|79
+Tomato Soup|359
+Chips and Beefy Delight|399
+Chips and Dip|259
+French Fries|199
+1 Cup Garlic Rice|119
+Extra Toast / Nachos / Dip / Egg|39`],
   ['Sparkling Wine', '', `
 Moet & Chandon Champagne Brut|7499
 Juvé & Camps Cava 2018 Gran Reserva|2999
@@ -155,7 +195,7 @@ export const menuCatalog = sections.flatMap(([category, sizeList, rows]) => {
       const [size, price] = entry.includes(':') ? entry.split(':') : [sizes[index], entry];
       const name = size ? `${baseName} (${size})` : baseName;
       const sendsToKitchen = !['Sparkling Wine', 'White Wine', 'Red Wine', 'Dessert Wine', 'Whiskey', 'Beer'].includes(category);
-      return { name, category, priceCents: Number(price) * 100, sendsToKitchen: Number(sendsToKitchen) };
+      return { name, category, priceCents: Number(price) * 100, sendsToKitchen: Number(sendsToKitchen), ...getMenuDescription(category, baseName) };
     });
   });
 });

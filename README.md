@@ -138,6 +138,14 @@ Currency is pesos (₱): the React client formats PHP and the server uses `CURRE
 
 Requires Node.js 22.13 or newer (uses the built-in `node:sqlite`).
 
+## Menu descriptions
+
+On the POS and Barista screens, clicking a sellable card adds one item to the order and shows its description attached immediately below it. Holding for 500 ms shows the description without adding. The slightly darker description overlays the following cards without changing grid row heights; the item card retains its existing color. Click outside or press Escape to dismiss. Keyboard Enter or Space performs the same action as clicking. Unavailable and pending items can be inspected but cannot be added. In Availability mode, tapping changes availability and holding shows the description.
+
+All 218 supplied Ambiente options have descriptions in `menu-descriptions.js`, shared across sizes through `menu-catalog.js`. The API supplies the descriptions, and the client also bundles the same catalog to fill descriptions missing from older API responses and offline caches. Lookup normalizes case, whitespace and size suffixes while keeping each category distinct and restricting catalog enrichment to Ambiente. Existing receipts, menu IDs and prices are unaffected by description lookup. Unrecognized custom items display their actual name and category instead of an invented recipe.
+
+Research checked October 17, 2026, including individual searches for all 163 distinct category/item entries (218 size and price options): the International Bartenders Association's [Espresso Martini](https://iba-world.com/iba-cocktail/espresso-martini/), [Cosmopolitan](https://iba-world.com/iba-cocktail/cosmopolitan/), [Whiskey Sour](https://iba-world.com/iba-cocktail/whiskey-sour/) and [Margarita](https://iba-world.com/iba-cocktail/margarita/) recipes; Panlasang Pinoy's [inasal](https://panlasangpinoy.com/grilled-chicken-inasal-recipe/), [kare-kare](https://panlasangpinoy.com/kare-kare-recipe/) and [camaron rebosado](https://panlasangpinoy.com/seafood-fried-shrimp-camaron-rebosado-recipe/); Good Food's [puttanesca](https://www.bbcgoodfood.com/recipes/spaghetti-puttanesca); and linked producer references for selected wines and whiskies. Descriptions are original summaries of named ingredients, standard styles or identified products, not verified restaurant recipe cards. No public ingredient specification was established for house names such as Velvet Dreams, Fiesta Strips or Ambiente Supreme Cake. Those entries explicitly request staff confirmation rather than assigning invented flavors. Incomplete wine labels likewise require checking the actual bottle. Ingredient descriptions are not an allergen declaration.
+
 ## RaiRock Seafoods (second store)
 
 One server and codebase now serve two separate stores. Café Ambiente keeps its existing

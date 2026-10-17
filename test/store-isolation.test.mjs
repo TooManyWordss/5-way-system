@@ -23,7 +23,7 @@ test('RaiRock orders and credentials stay separate while the owner can see both 
   const port = await freePort();
   const child = spawn(process.execPath, ['server.js'], {
     cwd: root,
-    env: { ...process.env, DATA_DIR: dir, PORT: String(port), POS_PIN: '1234',
+    env: { ...process.env, DATA_DIR: dir, PORT: String(port), POS_PIN: '1234', BARISTA_PIN: '1234',
       RAIROCK_POS_PIN: '5678', KITCHEN_PIN: '4321', RAIROCK_KITCHEN_PIN: '8765',
       ADMIN_PASSWORD: 'owner-password', SESSION_SECRET: 'store-isolation-test-secret' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -69,6 +69,23 @@ test('RaiRock orders and credentials stay separate while the owner can see both 
     assert.match(savedPin, /^scrypt:[a-f0-9]+:[a-f0-9]+$/);
     assert.equal(savedPin.includes('2468'), false);
     assert.equal((await (await call('/rairock/api/menu', rairockOwner)).json()).items.length, 0);
+    const ambienteMenu = await (await call('/api/menu', ambienteOwner)).json();
+    assert(ambienteMenu.items.every(item => item.description?.length >= 100));
+    const baristaCookie = await login('', 'barista', '1234');
+    const baristaMenu = await (await call('/api/menu?station=barista', baristaCookie)).json();
+    assert.equal(baristaMenu.items[0].description, ambienteMenu.items[0].description);
+    assert.equal(ambienteMenu.items.find(item => item.name === 'Espresso Martini').descriptionSources[0].title, 'IBA: Espresso Martini');
+    const describedItem = ambienteMenu.items.find(item => item.name === 'Espresso Martini');
+    assert.equal((await call(`/api/menu/${describedItem.id}/availability`, ambienteOwner, 'POST', { available: false })).status, 200);
+    const unavailableMenu = await (await call('/api/menu', ambienteOwner)).json();
+    const unavailableItem = unavailableMenu.items.find(item => item.id === describedItem.id);
+    assert.equal(unavailableItem.available, 0);
+    assert.equal(unavailableItem.description, describedItem.description);
+    // An identical item name in the other store must not acquire Ambiente's recipe description.
+    assert.equal((await call('/rairock/api/menu/requests', rairockOwner, 'POST',
+      { name: 'Espresso Martini', category: 'Cocktails', priceCents: 39900 })).status, 201);
+    const rairockMenu = await (await call('/rairock/api/menu', rairockOwner)).json();
+    assert.equal(rairockMenu.items.find(item => item.name === 'Espresso Martini').description, undefined);
     const newItem = await call('/rairock/api/menu/requests', rairockOwner, 'POST',
       { name: 'Grilled Fish', category: 'Seafood', priceCents: 25000, sendsToKitchen: 1 });
     assert.equal(newItem.status, 201);

@@ -1,13 +1,14 @@
-import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { io, Socket } from 'socket.io-client';
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import SharedPins from './shared-pins';
+import { withMenuDescription } from '../../menu-descriptions.js';
 import './styles.css';
 
 type Role = 'pos' | 'barista' | 'kitchen' | 'inventory' | 'admin';
 type User = { role: Role; name?: string; staff?: { id: number; name: string; role: Role } | null };
-type MenuItem = { id: number; name: string; category: string; price_cents: number; available: number; sends_to_kitchen?: number };
+type MenuItem = { id: number; name: string; category: string; price_cents: number; available: number; sends_to_kitchen?: number; description?: string; descriptionNote?: string; descriptionSources?: { title: string; url: string }[] };
 type Line = { menu_item_id: number; name?: string; qty: number; unit_price_cents?: number; sends_to_kitchen?: number };
 type Order = { id: number; client_id?: string; station: string; receipt_no: number; receipt_label?: string; created_at: string; items: Line[]; total_cents: number; subtotal_cents: number; tax_cents: number; cash_tendered_cents?: number; change_cents?: number; status: string; kitchen_status: string; edit_count: number; void_reason?: string; voided_at?: string; staff_name?: string };
 type Summary = { gross_cents: number; order_count: number; void_count: number; void_cents: number; edited_count?: number; trading_days?: number };
@@ -140,6 +141,51 @@ function usePosData(station: 'cashier' | 'barista') {
   useEffect(() => { void loadMenu().catch(() => { const saved = localStorage.getItem(storageKey(`menu.${station}`)); if (saved) setMenuData(JSON.parse(saved)); }); void loadToday().catch(() => {}); }, [loadMenu, loadToday, station]);
   return { menuData, today, loadMenu, loadToday, state };
 }
+function MenuItemCard({ item, pending = false, availabilityMode, expanded, onAvailability, onDetails, onClose, onAdd }: {
+  item: MenuItem; pending?: boolean; availabilityMode: boolean; expanded: boolean; onAvailability: () => void; onDetails: () => void; onClose: () => void; onAdd: () => void;
+}) {
+  const card = useRef<HTMLDivElement>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const origin = useRef<{ x: number; y: number } | null>(null);
+  const suppressClick = useRef(false);
+  const cancelHold = () => { window.clearTimeout(timer.current); timer.current = undefined; origin.current = null; };
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!expanded) return;
+    const outside = (e: PointerEvent) => { if (!card.current?.contains(e.target as Node)) onClose(); };
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [expanded, onClose]);
+  return <div ref={card} className="menu-card" data-expanded={expanded}><button type="button" className={`menu-item ${pending ? 'pending' : !item.available ? 'unavailable' : ''}`}
+    aria-label={`${item.name}, ${pending ? 'awaiting approval' : money(item.price_cents)}. ${availabilityMode && !pending ? 'Change availability; hold for description' : pending || !item.available ? 'Show description' : 'Add to order and show description; hold to read only'}`}
+    aria-expanded={expanded} aria-controls={`menu-description-${item.id}`}
+    onPointerDown={e => {
+      if (!e.isPrimary || e.button !== 0) return;
+      cancelHold(); suppressClick.current = false; origin.current = { x: e.clientX, y: e.clientY };
+      timer.current = window.setTimeout(() => { suppressClick.current = true; cancelHold(); onDetails(); }, 500);
+    }}
+    onPointerMove={e => { if (origin.current && Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > 10) { suppressClick.current = true; cancelHold(); } }}
+    onPointerUp={cancelHold} onPointerCancel={() => { suppressClick.current = true; cancelHold(); }} onPointerLeave={cancelHold}
+    onContextMenu={e => { e.preventDefault(); cancelHold(); suppressClick.current = true; onDetails(); }}
+    onClick={e => {
+      if (suppressClick.current && e.detail !== 0) { suppressClick.current = false; return; }
+      if (availabilityMode && !pending) { onAvailability(); return; }
+      onDetails();
+      if (!pending && item.available) onAdd();
+    }}>
+    <span className="name">{item.name}</span>
+    <span className="price">{pending ? 'Awaiting approval' : !item.available ? 'Unavailable' : availabilityMode ? 'Available' : money(item.price_cents)}</span>
+  </button>
+    {expanded && <div className="menu-card-description" id={`menu-description-${item.id}`} role="region" aria-label={`${item.name} description`} tabIndex={0}>
+      <div className="menu-description-toolbar"><button type="button" className="menu-description-close" aria-label={`Close ${item.name} description`} onClick={() => { onClose(); card.current?.querySelector('button')?.focus({ preventScroll: true }); }}>Close <span aria-hidden="true">×</span></button></div>
+      <p>{item.description}</p>
+      {item.descriptionNote && <p className="menu-card-note">{item.descriptionNote}</p>}
+    </div>}
+  </div>;
+}
+
 function Pos({ role }: { role: 'pos' | 'barista' }) {
   const station = role === 'barista' ? 'barista' : 'cashier';
   const hiddenVoidedKey = storageKey(`hiddenVoided.${station}.${localDay()}`);
@@ -148,10 +194,13 @@ function Pos({ role }: { role: 'pos' | 'barista' }) {
   const [cart, setCart] = useState<Record<number,number>>({}), [cash, setCash] = useState(''), [editing, setEditing] = useState<Order|null>(null), [status, setStatus] = useState(''), [pendingOrders, setPendingOrders] = useState<any[]>(() => JSON.parse(localStorage.getItem(storageKey(`pending.${station}`)) ?? '[]'));
   const [newOpen, setNewOpen] = useState(false), [voidOrder, setVoidOrder] = useState<Order|null>(null), [printerOpen, setPrinterOpen] = useState(false), [autoPrint, setAutoPrint] = useState(localStorage.getItem(storageKey('autoPrint')) === 'true'), [paper, setPaper] = useState(localStorage.getItem(storageKey('paper')) ?? '80');
   const [lastReceipt, setLastReceipt] = useState<any>(null), [saving, setSaving] = useState(false);
+  const [detailsItemId, setDetailsItemId] = useState<number | null>(null);
   const [hiddenVoidedIds, setHiddenVoidedIds] = useState<Set<number>>(() => new Set(JSON.parse(localStorage.getItem(hiddenVoidedKey) ?? '[]')));
   useEffect(() => { localStorage.setItem(hiddenVoidedKey, JSON.stringify([...hiddenVoidedIds])); }, [hiddenVoidedIds, hiddenVoidedKey]);
   useEffect(() => { if (role === 'pos' || role === 'barista') { if ('serviceWorker' in navigator && window.isSecureContext) void navigator.serviceWorker.register(storeUrl('/sw.js'), { scope: storeUrl('/') }).catch(() => {}); } }, [role]);
-  const items = menuData?.items ?? [], pendingItems = menuData?.pending ?? [], taxRate = menuData?.taxRate ?? 0;
+  const items = useMemo(() => (menuData?.items ?? []).map(item => withMenuDescription(item, STORE)), [menuData]);
+  const pendingItems = useMemo(() => (menuData?.pending ?? []).map(item => withMenuDescription(item, STORE)), [menuData]);
+  const taxRate = menuData?.taxRate ?? 0;
   const categories = ['All', ...Array.from(new Set(items.concat(pendingItems).map(i => i.category)))];
   const shownItems = items.filter(item => (query ? item.name.toLowerCase().includes(query.toLowerCase()) : category === 'Unavailable' ? !item.available : category === 'All' || item.category === category));
   const shownPending = pendingItems.filter(item => (query ? item.name.toLowerCase().includes(query.toLowerCase()) : category !== 'Unavailable' && (category === 'All' || item.category === category)));
@@ -181,16 +230,19 @@ function Pos({ role }: { role: 'pos' | 'barista' }) {
   if(!ready)return <div className="loading">Opening till…</div>;
   return <div className="pos-shell" data-view={view}>
     <section className="pos-main"><header className="pos-head"><Logo mark />{station==='barista'&&<span className="station-name">Barista</span>}<nav className="views">{(['menu','receipts','today'] as const).map(v=><button className={`view-tab ${view===v?'active':''}`} onClick={()=>{setView(v);if(v!=='menu')void loadToday();}} key={v}>{v==='today'?'Today':v[0].toUpperCase()+v.slice(1)}</button>)}</nav><div className="head-right"><button className="link" onClick={()=>setNewOpen(true)}>+ New item</button><button className="link" onClick={()=>setPrinterOpen(true)}>Printer</button><Connection state={state}/><span className="who">{user?.name}</span><button className="link" onClick={logout}>{user?.name?'Switch':'Log out'}</button></div></header>
-      {view==='menu'&&<div className="view">
-        <div className="tools"><input className="search" type="search" placeholder="Search the menu" value={query} onChange={e=>setQuery(e.target.value)}/><nav className="categories">{[...categories,...(items.some(i=>!i.available)?['Unavailable']:[])].map(c=><button key={c} className={`chip ${category===c?'active':''}`} onClick={()=>{setCategory(c);setQuery('');}}>{c}</button>)}</nav><button className={`btn small ${availabilityMode?'primary':''}`} onClick={()=>setAvailabilityMode(!availabilityMode)}>{availabilityMode?'Done':'Availability'}</button></div>
-        {availabilityMode&&<p className="avail-hint">Tap an item to mark it unavailable, or tap it again to make it available. Every till updates straight away.</p>}
+      {view==='menu'&&<div className="view menu-layout">
+        <aside className="menu-sidebar"><h2>Categories</h2><nav className="categories" aria-label="Menu categories">{[...categories,...(items.some(i=>!i.available)?['Unavailable']:[])].map(c=><button key={c} className={`chip ${category===c?'active':''}`} aria-pressed={category===c} onClick={()=>{setCategory(c);setQuery('');}}>{c}</button>)}</nav></aside>
+        <div className="menu-content">
+        <div className="tools"><input className="search" type="search" aria-label="Search the menu" placeholder="Search the menu" value={query} onChange={e=>setQuery(e.target.value)}/><button className={`btn small ${availabilityMode?'primary':''}`} onClick={()=>setAvailabilityMode(!availabilityMode)}>{availabilityMode?'Done':'Availability'}</button></div>
+        <p className="avail-hint">{availabilityMode ? 'Tap an item to change availability. Hold an item to view its description.' : 'Click an item to add it and see its description. Hold to read only. Click outside to close.'}</p>
         <div className="menu-grid">
           {shownCategories.map(name=><React.Fragment key={name}>
             <div className="menu-category-heading"><h2>{name}</h2>{name==='Whiskey'&&<span>30 ml per shot (approximately 1 oz)</span>}</div>
-            {shownItems.filter(item=>item.category===name).map(item=><button key={item.id} className={`menu-item ${!item.available?'unavailable':''}`} onClick={()=>availabilityMode?void addAvailable(item,!item.available):!item.available?confirm(`Make ${item.name} available again?`)&&void addAvailable(item,true):setQty(item.id,1)}><span className="name">{item.name}</span><span className="price">{!item.available?'Unavailable':availabilityMode?'Available':money(item.price_cents)}</span></button>)}
-            {shownPending.filter(item=>item.category===name).map(item=><div key={`pending-${item.id}`} className="menu-item pending"><span className="name">{item.name}</span><span className="price">Awaiting approval</span></div>)}
+            {shownItems.filter(item=>item.category===name).map(item=><MenuItemCard key={item.id} item={item} availabilityMode={availabilityMode} expanded={detailsItemId===item.id} onAvailability={()=>void addAvailable(item,!item.available)} onDetails={()=>setDetailsItemId(item.id)} onClose={()=>setDetailsItemId(null)} onAdd={()=>setQty(item.id,1)}/>)}
+            {shownPending.filter(item=>item.category===name).map(item=><MenuItemCard key={`pending-${item.id}`} item={item} pending availabilityMode={availabilityMode} expanded={detailsItemId===item.id} onAvailability={()=>{}} onDetails={()=>setDetailsItemId(item.id)} onClose={()=>setDetailsItemId(null)} onAdd={()=>{}}/>)}
           </React.Fragment>)}
           {!shownCategories.length&&<p className="empty grid-empty">No items match your search.</p>}
+        </div>
         </div>
       </div>}
       {view==='receipts'&&<div className="view"><div className="tools"><input className="search" type="search" placeholder="Find a receipt number or item" value={receiptQuery} onChange={e=>setReceiptQuery(e.target.value)}/></div><div className="receipt-list">{filterReceipts.map((o:Order)=><article className={`receipt-card ${o.status==='voided'?'voided':''}`} key={o.id}><div className="rc-head"><strong>#{formatReceipt(o)}</strong><span className="rc-time">{time(o.created_at)}</span>{o.status==='voided'&&<span className="pill void">Voided</span>}{o.edit_count>0&&<span className="pill">Edited ×{o.edit_count}</span>}<span className="rc-total">{money(o.total_cents)}</span>{o.status==='voided'&&<button className="rc-dismiss" type="button" title="Hide this voided receipt" aria-label={`Hide voided receipt #${formatReceipt(o)}`} onClick={()=>setHiddenVoidedIds(current=>new Set(current).add(o.id))}>×</button>}</div><div>{o.items.map(i=>`${i.qty}× ${i.name}`).join(' · ')}</div><div className="rc-foot"><span className="rc-meta">{o.status==='voided'?`Voided ${time(o.voided_at)} · ${o.void_reason}`:`Cash ${money(o.cash_tendered_cents)} · change ${money(o.change_cents)}`}</span><button className="btn small" onClick={()=>printReceipt(o,true)}>Print</button>{o.status!=='voided'&&<><button className="btn small" onClick={()=>{setEditing(o);setCart(Object.fromEntries(o.items.map(i=>[i.menu_item_id,i.qty])));setView('menu');}}>Edit</button><button className="btn small danger-outline" onClick={()=>setVoidOrder(o)}>Void</button></>}</div></article>)}{!filterReceipts.length&&<p className="empty">{today?.orders?.length?'No receipts to show':'No receipts yet today'}</p>}</div></div>}
