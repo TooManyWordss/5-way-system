@@ -6,6 +6,9 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "test:browser": "npm run build && node --test test/dining-browser.mjs",
+    "typecheck": "tsc --noEmit",
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "concurrently -k \"node --watch --env-file-if-exists=.env server.js\" \"vite --config vite.config.ts\"",
     "build": "vite build --config vite.config.ts",
@@ -24,6 +27,7 @@
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

@@ -12,6 +12,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Server } from 'socket.io';
 import { builtInEvents } from './events.js';
 import { menuCatalog } from './menu-catalog.js';
+import { initDiningSchema, registerDining } from './dining-server.js';
+import { totals as diningTotals } from './dining-domain.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -20,6 +22,7 @@ import {
 } from '@simplewebauthn/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+process.env.TZ ??= 'Asia/Manila';
 const STORES = {
   ambiente: { name: 'Café Ambiente', receipt: 'Café Ambiente' },
   rairock: { name: 'RaiRock Seafoods', receipt: 'RaiRock Seafoods' },
@@ -448,7 +451,7 @@ if (menuVersion !== 'ambiente-2026-10-complete') {
   }
 }
 }
-for (const store of Object.keys(STORES)) storeContext.run(store, () => { initSchema(); seedMenu(); });
+for (const store of Object.keys(STORES)) storeContext.run(store, () => { initSchema(); seedMenu(); initDiningSchema(db); });
 
 function attachItems(orders) {
   if (orders.length === 0) return orders;
@@ -614,6 +617,9 @@ app.use('/api/pos', requireRole(...SELLERS));
 app.use('/api/kitchen', requireRole('kitchen'));
 app.use('/api/inventory', requireRole(...STOCK_KEEPERS));
 app.use('/api/admin', requireRole('admin'));
+app.use('/api/orders', requireRole('pos', 'barista', 'kitchen'));
+
+registerDining({ app, db, requireRole, currentStore, broadcast: storeBroadcast, taxRate: TAX_RATE, loadOrder, logActivity, announceStock, receiptConfig: () => receiptForStore('cashier') });
 
 // ---------- Face ID, Touch ID and fingerprint (passkeys) ----------
 // The device checks the face or finger; the server only checks a signature against the
@@ -1093,6 +1099,7 @@ const findSellable = {
 // POS or barista bar -> server: ring up a cash sale.
 app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
   const { clientId, items, createdAt, cashTenderedCents } = req.body ?? {};
+  const discount = currentStore() === 'ambiente' ? req.body?.discount ?? null : null;
   const station = stationOf(req, req.body?.station);
   if (typeof clientId !== 'string' || clientId.length === 0 || clientId.length > 100) {
     return res.status(400).json({ error: 'clientId is required' });
@@ -1121,9 +1128,10 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
     lines.push({ menuItem, qty });
   }
 
-  const subtotal = lines.reduce((sum, l) => sum + l.menuItem.price_cents * l.qty, 0);
-  const tax = Math.round(subtotal * TAX_RATE);
-  const total = subtotal + tax;
+  let bill;
+  try { bill = diningTotals({ discount, submissions: [{ lines: lines.map(l => ({ qty: l.qty, unit_price_cents: l.menuItem.price_cents })) }] }, TAX_RATE); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  const { subtotal_cents: subtotal, tax_cents: tax, total_cents: total } = bill;
   let tendered = null;
   if (cashTenderedCents !== undefined && cashTenderedCents !== null) {
     if (!Number.isInteger(cashTenderedCents) || cashTenderedCents < 0) {
@@ -1135,7 +1143,7 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
   const kitchenStatus = lines.some((l) => l.menuItem.sends_to_kitchen) ? 'new' : 'none';
 
   let orderId;
-  db.exec('BEGIN');
+  db.exec('SAVEPOINT order_write');
   try {
     // Cashier receipts run 1001, 1002…; the barista bar has its own series, printed B-0001, B-0002…
     const { next } = db
@@ -1145,11 +1153,11 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
       db
         .prepare(
           `INSERT INTO orders (client_id, station, receipt_no, created_at, payment_method, subtotal_cents, tax_cents,
-             total_cents, kitchen_status, cash_tendered_cents, change_cents, staff_id, staff_name)
-           VALUES (?, ?, ?, ?, 'cash', ?, ?, ?, ?, ?, ?, ?, ?)`
+             total_cents, kitchen_status, cash_tendered_cents, change_cents, staff_id, staff_name, discount_cents, discount_json)
+           VALUES (?, ?, ?, ?, 'cash', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(clientId, station, next, rungUpAt, subtotal, tax, total, kitchenStatus, tendered,
-          tendered === null ? null : tendered - total, req.staff?.id ?? null, req.staff?.name ?? null)
+          tendered === null ? null : tendered - total, req.staff?.id ?? null, req.staff?.name ?? null, bill.discount_cents, JSON.stringify(discount))
         .lastInsertRowid
     );
     const insertItem = db.prepare(
@@ -1159,9 +1167,9 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
     for (const { menuItem, qty } of lines) {
       insertItem.run(orderId, menuItem.id, menuItem.name, menuItem.price_cents, qty, menuItem.sends_to_kitchen);
     }
-    db.exec('COMMIT');
+    db.exec('RELEASE order_write');
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO order_write; RELEASE order_write');
     throw err;
   }
 
@@ -1200,7 +1208,7 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
   const before = new Map(); // menu item id -> { name, unit_price_cents, sends_to_kitchen, qty }
   for (const i of order.items) {
     const prev = before.get(i.menu_item_id);
-    before.set(i.menu_item_id, { ...i, qty: (prev?.qty ?? 0) + i.qty });
+    before.set(i.menu_item_id, { ...i, qty: (prev?.qty ?? 0) + i.qty, ready_qty: (prev?.ready_qty ?? 0) + i.ready_qty });
   }
 
   const wanted = new Map();
@@ -1215,7 +1223,7 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
     if (qty > 99) return res.status(400).json({ error: 'Invalid quantity' });
     const prev = before.get(id);
     if (prev) {
-      lines.push({ menu_item_id: id, name: prev.name, unit_price_cents: prev.unit_price_cents, sends_to_kitchen: prev.sends_to_kitchen, qty });
+      lines.push({ id: prev.id, ready_qty: Math.min(prev.ready_qty, qty), note: prev.note, menu_item_id: id, name: prev.name, unit_price_cents: prev.unit_price_cents, sends_to_kitchen: prev.sends_to_kitchen, qty });
       continue;
     }
     const menuItem = findSellable.get(id);
@@ -1231,11 +1239,14 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
     const name = before.get(id)?.name ?? lines.find((l) => l.menu_item_id === id).name;
     if (diff) changes.push(`${diff > 0 ? '+' : '−'}${Math.abs(diff)} ${name}`);
   }
+  const discount = currentStore() === 'ambiente' && Object.hasOwn(req.body, 'discount') ? req.body.discount : JSON.parse(order.discount_json ?? 'null');
+  if (JSON.stringify(discount) !== JSON.stringify(JSON.parse(order.discount_json ?? 'null'))) changes.push('Discount updated');
   if (changes.length === 0) return res.status(400).json({ error: 'Nothing was changed' });
 
-  const subtotal = lines.reduce((sum, l) => sum + l.unit_price_cents * l.qty, 0);
-  const tax = Math.round(subtotal * TAX_RATE);
-  const total = subtotal + tax;
+  let bill;
+  try { bill = diningTotals({ discount, submissions: [{ lines }] }, TAX_RATE); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  const { subtotal_cents: subtotal, tax_cents: tax, total_cents: total } = bill;
 
   // Keep the kitchen in step: new kitchen items reopen a finished ticket,
   // and a ticket with no kitchen items left disappears.
@@ -1247,26 +1258,28 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
   else if (moreForKitchen && kitchenStatus === 'ready') kitchenStatus = 'new';
   const reopened = kitchenStatus === 'new' && order.kitchen_status !== 'new';
 
-  db.exec('BEGIN');
+  db.exec('SAVEPOINT order_write');
   try {
-    db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
-    const insertItem = db.prepare(
-      `INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    );
-    for (const l of lines) insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen);
+    const retained = new Set(lines.filter(l => l.id).map(l => l.id));
+    for (const old of order.items) if (!retained.has(old.id)) db.prepare('DELETE FROM order_items WHERE id = ?').run(old.id);
+    const insertItem = db.prepare('INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, ready_qty, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const l of lines) {
+      if (l.id) db.prepare('UPDATE order_items SET qty = ?, ready_qty = ?, note = ? WHERE id = ?').run(l.qty, l.ready_qty, l.note ?? '', l.id);
+      else insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, 0, '');
+    }
+
     db.prepare(
-      `UPDATE orders SET subtotal_cents = ?, tax_cents = ?, total_cents = ?, kitchen_status = ?,
+      `UPDATE orders SET subtotal_cents = ?, tax_cents = ?, total_cents = ?, discount_cents = ?, discount_json = ?, kitchen_status = ?,
          kitchen_started_at = CASE WHEN ? THEN NULL ELSE kitchen_started_at END,
          kitchen_ready_at   = CASE WHEN ? THEN NULL ELSE kitchen_ready_at END,
          edited_at = ?, edit_count = edit_count + 1
        WHERE id = ?`
-    ).run(subtotal, tax, total, kitchenStatus, reopened ? 1 : 0, reopened ? 1 : 0, new Date().toISOString(), order.id);
+    ).run(subtotal, tax, total, bill.discount_cents, JSON.stringify(discount), kitchenStatus, reopened ? 1 : 0, reopened ? 1 : 0, new Date().toISOString(), order.id);
     logActivity(req, 'order.edited',
       `Edited receipt #${order.receipt_label}: ${changes.join(', ')} (${money(order.total_cents)} → ${money(total)})`, order.id);
-    db.exec('COMMIT');
+    db.exec('RELEASE order_write');
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO order_write; RELEASE order_write');
     throw err;
   }
 
@@ -1328,6 +1341,7 @@ app.patch('/api/orders/:id/kitchen', requireRole('kitchen'), (req, res) => {
     return res.status(409).json({ error: `Cannot move ticket from ${order.kitchen_status} to ${status}` });
   }
 
+  if(status==='ready')db.prepare('UPDATE order_items SET ready_qty = qty WHERE order_id = ? AND sends_to_kitchen = 1').run(order.id);
   const updated = loadOrder(order.id);
   storeBroadcast(['kitchen', 'admin']).emit('ticket.updated', updated);
   res.json(updated);
@@ -1413,7 +1427,7 @@ function eventsBetween(from, to, { includeHidden = false } = {}) {
   for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
     for (const e of builtInEvents(y)) list.push({ ...e, hidden: hidden.has(e.key) });
   }
-  for (const e of db.prepare('SELECT * FROM events WHERE start_date <= ? AND end_date >= ?').all(to, from)) {
+  for (const e of db.prepare('SELECT * FROM events WHERE active = 1 AND start_date <= ? AND end_date >= ?').all(to, from)) {
     list.push({ key: `custom:${e.name.toLowerCase()}`, name: e.name, kind: e.kind, start: e.start_date, end: e.end_date, note: e.note, custom_id: e.id, hidden: false });
   }
   return list.filter((e) => e.start <= to && e.end >= from && (includeHidden || !e.hidden));
@@ -1468,7 +1482,7 @@ function eventPerformance(periodStart, periodEnd) {
   const lastYearOf = (e) => {
     const y = Number(e.start.slice(0, 4)) - 1;
     if (e.custom_id) {
-      return db.prepare('SELECT start_date AS start, end_date AS end FROM events WHERE lower(name) = lower(?) AND start_date LIKE ?')
+      return db.prepare('SELECT start_date AS start, end_date AS end FROM events WHERE active = 1 AND lower(name) = lower(?) AND start_date LIKE ?')
         .get(e.name, `${y}-%`) ?? null;
     }
     return builtInEvents(y).find((p) => p.key === e.key) ?? null;
@@ -1669,9 +1683,9 @@ app.post('/api/admin/events', (req, res) => {
 });
 
 app.delete('/api/admin/events/:id', (req, res) => {
-  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(Number(req.params.id));
+  const event = db.prepare('SELECT * FROM events WHERE id = ? AND active = 1').get(Number(req.params.id));
   if (!event) return res.status(404).json({ error: 'Event not found' });
-  db.prepare('DELETE FROM events WHERE id = ?').run(event.id);
+  db.prepare('UPDATE events SET active = 0 WHERE id = ?').run(event.id);
   logActivity(req, 'event.removed', `Removed event ${event.name}`);
   res.json({ ok: true });
 });
