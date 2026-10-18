@@ -405,7 +405,81 @@ db.exec(`
     note           TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_inventory_log_item ON inventory_log(item_id);
+
+  -- What one of each menu item uses from stock, e.g. 1 Sweet Corn uses 1 pcs of Corn.
+  -- Selling takes it out, editing a receipt adjusts it, voiding puts it back.
+  CREATE TABLE IF NOT EXISTS menu_recipes (
+    menu_item_id      INTEGER NOT NULL REFERENCES menu_items(id),
+    inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id),
+    qty               REAL    NOT NULL,
+    PRIMARY KEY (menu_item_id, inventory_item_id)
+  );
 `);
+// The kitchen can mark single items ready while the rest of the ticket is still being made.
+addMissingColumns('order_items', { kitchen_ready_at: 'TEXT' });
+
+db.exec(`
+  -- The dining room. x, y, w, h place each table on the floor map (1280 × 720 drawing).
+  CREATE TABLE IF NOT EXISTS dining_tables (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT    NOT NULL,
+    seats      INTEGER NOT NULL DEFAULT 4,
+    x          REAL    NOT NULL,
+    y          REAL    NOT NULL,
+    w          REAL    NOT NULL,
+    h          REAL    NOT NULL,
+    active     INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT    NOT NULL
+  );
+`);
+addMissingColumns('orders', {
+  table_id: 'INTEGER',      // NULL = takeout / counter
+  table_name: 'TEXT',       // copied at the time of sale, like item names
+  guests: 'INTEGER',
+  customer_tag: 'TEXT',     // vip | repeat
+  seated_at: 'TEXT',        // when the party sat down
+  billed_out_at: 'TEXT',    // when they paid up and left; the table is free again
+});
+}
+
+// Café Ambiente's floor, from the owner's sketch. The owner can rename, add, remove and move tables.
+const AMBIENTE_TABLES = [
+  ['Balcony 1', 4, 138, 160, 90, 50], ['Balcony 2', 4, 148, 310, 90, 50],
+  ['Table 1', 4, 313, 175, 50, 90], ['Table 2', 2, 358, 103, 44, 44], ['Table 3', 2, 480, 106, 44, 44],
+  ['Couch', 3, 738, 140, 90, 50], ['Table 4', 2, 953, 81, 44, 44], ['Table 5', 2, 958, 247, 44, 44],
+  ['Table 6', 2, 964, 384, 44, 44], ['Table 7', 2, 964, 465, 44, 44],
+  ['Table 8', 4, 1118, 95, 50, 90], ['Table 9', 4, 1128, 215, 50, 90], ['Table 10', 4, 1105, 355, 90, 50],
+  ['Table 11', 4, 1095, 465, 90, 50], ['Table 12', 4, 1108, 585, 90, 50],
+  ['Table 13', 4, 690, 565, 90, 50], ['Table 14', 4, 680, 440, 90, 50],
+  ['Table 15', 4, 818, 560, 90, 50], ['Table 16', 4, 823, 430, 90, 50],
+];
+// Every table of a kind is drawn the same size: a 2-seater is a small square with the two chairs
+// facing each other; anything bigger is a long table, lying the way it was drawn.
+const TWO_SEATER = 44, LONG_SIDE = 90, SHORT_SIDE = 50;
+function tableSize(seats, upright = false) {
+  if (seats <= 2) return { w: TWO_SEATER, h: TWO_SEATER };
+  return upright ? { w: SHORT_SIDE, h: LONG_SIDE } : { w: LONG_SIDE, h: SHORT_SIDE };
+}
+// Resizes a table about its centre, so it stays where it was on the map.
+function resized(t, seats = t.seats) {
+  const { w, h } = tableSize(seats, t.h > t.w);
+  return { w, h, x: Math.max(0, Math.round(t.x + (t.w - w) / 2)), y: Math.max(70, Math.round(t.y + (t.h - h) / 2)) };
+}
+function seedTables() {
+  if (currentStore() === 'ambiente' && getSetting('tables_seeded', '') !== '1') {
+    const insert = db.prepare('INSERT INTO dining_tables (name, seats, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const now = new Date().toISOString();
+    for (const t of AMBIENTE_TABLES) insert.run(...t, now);
+    setSetting('tables_seeded', '1');
+  }
+  if (getSetting('tables_uniform', '') !== '1') {
+    const update = db.prepare('UPDATE dining_tables SET x = ?, y = ?, w = ?, h = ? WHERE id = ?');
+    for (const t of db.prepare('SELECT * FROM dining_tables').all()) {
+      const { x, y, w, h } = resized(t);
+      update.run(x, y, w, h, t.id);
+    }
+    setSetting('tables_uniform', '1');
+  }
 }
 
 const getSetting = (key, fallback) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? fallback;
@@ -448,7 +522,7 @@ if (menuVersion !== 'ambiente-2026-10-complete') {
   }
 }
 }
-for (const store of Object.keys(STORES)) storeContext.run(store, () => { initSchema(); seedMenu(); });
+for (const store of Object.keys(STORES)) storeContext.run(store, () => { initSchema(); seedMenu(); seedTables(); });
 
 function attachItems(orders) {
   if (orders.length === 0) return orders;
@@ -992,6 +1066,34 @@ function announceStock(req, before, after) {
   }
 }
 
+// Takes out (or, for a negative count, puts back) what the menu items use from stock.
+// `soldByMenuItem` maps menu item id -> how many more were sold (negative when returned).
+// Call inside the sale's transaction; call the returned function after COMMIT to tell the screens.
+// Stock may go below zero: the sale happened, so the count was wrong and needs a recount.
+function applyRecipes(req, soldByMenuItem, note) {
+  const changed = new Map(); // inventory id -> stock before the first change
+  const recipe = db.prepare(
+    `SELECT r.qty, i.* FROM menu_recipes r JOIN inventory_items i ON i.id = r.inventory_item_id
+      WHERE r.menu_item_id = ? AND i.active = 1`
+  );
+  const update = db.prepare('UPDATE inventory_items SET quantity = ?, updated_at = ?, updated_by = ? WHERE id = ?');
+  const now = new Date().toISOString();
+  for (const [menuItemId, sold] of soldByMenuItem) {
+    if (!sold) continue;
+    for (const row of recipe.all(menuItemId)) {
+      const { qty: perItem, ...item } = row;
+      if (!changed.has(item.id)) changed.set(item.id, item);
+      const change = -perItem * sold;
+      const quantity = roundQty(item.quantity + change);
+      update.run(quantity, now, req.staff?.name ?? ROLE_LABEL[req.role], item.id);
+      logStock(req, { ...item, quantity }, sold > 0 ? 'sold' : 'returned', change, note);
+    }
+  }
+  return () => {
+    for (const [id, before] of changed) announceStock(req, before, db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(id));
+  };
+}
+
 app.get('/api/inventory', (req, res) => res.json(inventoryItems()));
 
 // Staff and the owner add an item with its current stock and the level to reorder at.
@@ -1070,6 +1172,44 @@ app.delete('/api/admin/inventory/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Owner: what each menu item takes out of stock.
+app.get('/api/admin/recipes', (req, res) => {
+  res.json(db.prepare(
+    `SELECT r.menu_item_id, r.inventory_item_id, r.qty, i.name, i.unit
+       FROM menu_recipes r JOIN inventory_items i ON i.id = r.inventory_item_id
+      WHERE i.active = 1 ORDER BY lower(i.name)`
+  ).all());
+});
+
+// Owner: replace one menu item's recipe. An empty list means selling it no longer touches stock.
+app.put('/api/admin/recipes/:menuItemId', (req, res) => {
+  const menuItem = db.prepare("SELECT * FROM menu_items WHERE id = ? AND active = 1 AND status = 'approved'").get(Number(req.params.menuItemId));
+  if (!menuItem) return res.status(404).json({ error: 'Menu item not found' });
+  const { ingredients } = req.body ?? {};
+  if (!Array.isArray(ingredients)) return res.status(400).json({ error: 'ingredients must be a list' });
+  const rows = new Map();
+  for (const { inventoryItemId, qty } of ingredients) {
+    const item = db.prepare('SELECT * FROM inventory_items WHERE id = ? AND active = 1').get(Number(inventoryItemId));
+    if (!item) return res.status(400).json({ error: 'Stock item not found' });
+    if (!isQty(qty) || qty === 0) return res.status(400).json({ error: `Enter how much ${item.name} one ${menuItem.name} uses` });
+    rows.set(item.id, { item, qty: roundQty(qty) });
+  }
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM menu_recipes WHERE menu_item_id = ?').run(menuItem.id);
+    const insert = db.prepare('INSERT INTO menu_recipes (menu_item_id, inventory_item_id, qty) VALUES (?, ?, ?)');
+    for (const { item, qty } of rows.values()) insert.run(menuItem.id, item.id, qty);
+    const uses = [...rows.values()].map(({ item, qty }) => qtyText(item, qty) + ' ' + item.name).join(', ');
+    logActivity(req, 'menu.recipe', `${menuItem.name} now uses ${uses || 'nothing from stock'}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  storeBroadcast('admin').emit('inventory.updated', {});
+  res.json({ ok: true });
+});
+
 // Cashier or barista: mark an item unavailable (sold out, machine down…) or available again.
 // Every till sees it straight away.
 app.post('/api/menu/:id/availability', (req, res) => {
@@ -1082,6 +1222,113 @@ app.post('/api/menu/:id/availability', (req, res) => {
   logActivity(req, available ? 'menu.available' : 'menu.unavailable', `Marked ${item.name} ${available ? 'available again' : 'unavailable'}`);
   storeBroadcast(['pos', 'barista', 'admin']).emit('menu.updated');
   res.json({ id: item.id, available });
+});
+
+// ---------- Tables ----------
+
+// Receipts rung up today for a table that hasn't billed out yet. A party left open overnight
+// doesn't keep the table busy the next day.
+function openTableOrders(tableId = null) {
+  const [from] = dayRange();
+  return db.prepare(
+    `SELECT * FROM orders WHERE status = 'paid' AND table_id IS NOT NULL AND billed_out_at IS NULL AND created_at >= ?
+       ${tableId ? 'AND table_id = ?' : ''} ORDER BY created_at`
+  ).all(...(tableId ? [from, tableId] : [from]));
+}
+
+function diningTables() {
+  const open = new Map();
+  for (const o of openTableOrders()) {
+    const party = open.get(o.table_id) ?? { seated_at: o.seated_at ?? o.created_at, guests: 0, customer_tag: null, total_cents: 0, receipts: [] };
+    party.guests = Math.max(party.guests, o.guests ?? 0);
+    party.customer_tag = party.customer_tag ?? o.customer_tag;
+    party.total_cents += o.total_cents;
+    party.receipts.push({ id: o.id, label: receiptLabel(o), total_cents: o.total_cents, created_at: o.created_at });
+    open.set(o.table_id, party);
+  }
+  return db.prepare('SELECT * FROM dining_tables WHERE active = 1 ORDER BY id').all()
+    .map((t) => ({ ...t, party: open.get(t.id) ?? null }));
+}
+
+const announceTables = () => storeBroadcast(['pos', 'barista', 'kitchen', 'admin']).emit('tables.updated');
+
+app.get('/api/tables', requireRole(...SELLERS, 'kitchen'), (req, res) => res.json(diningTables()));
+
+// Cashier or barista: the party paid up and left. The table is free and its receipts get the exit time.
+app.post('/api/tables/:id/bill-out', requireRole(...SELLERS), (req, res) => {
+  const table = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(Number(req.params.id));
+  if (!table) return res.status(404).json({ error: 'Table not found' });
+  const open = openTableOrders(table.id);
+  if (!open.length) return res.status(409).json({ error: `${table.name} is already free` });
+  const now = new Date().toISOString();
+  const stay = Math.round((Date.parse(now) - Date.parse(open[0].seated_at ?? open[0].created_at)) / 60000);
+  db.exec('BEGIN');
+  try {
+    const mark = db.prepare('UPDATE orders SET billed_out_at = ? WHERE id = ?');
+    for (const o of open) mark.run(now, o.id);
+    logActivity(req, 'table.billed_out',
+      `${table.name} billed out after ${stay} min · ${open.map((o) => `#${receiptLabel(o)}`).join(', ')} · ${money(open.reduce((n, o) => n + o.total_cents, 0))}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  announceTables();
+  res.json({ ok: true });
+});
+
+function tableProblem({ name, seats }, ignoreId = 0) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 30) return 'Table name must be 1–30 characters';
+  if (!Number.isInteger(seats) || seats < 1 || seats > 50) return 'Seats must be 1–50';
+  if (db.prepare('SELECT 1 FROM dining_tables WHERE lower(name) = lower(?) AND id != ? AND active = 1').get(name.trim(), ignoreId)) {
+    return `There is already a table called "${name.trim()}"`;
+  }
+  return null;
+}
+const onMap = (n, max) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= max;
+
+app.get('/api/admin/tables', (req, res) => res.json(diningTables()));
+
+// Owner: a new table appears in the bottom-left corner of the map, ready to be dragged into place.
+app.post('/api/admin/tables', (req, res) => {
+  const name = req.body?.name, seats = Number(req.body?.seats);
+  const problem = tableProblem({ name, seats });
+  if (problem) return res.status(400).json({ error: problem });
+  const id = Number(db.prepare('INSERT INTO dining_tables (name, seats, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(name.trim(), seats, 30, 640, tableSize(seats).w, tableSize(seats).h, new Date().toISOString()).lastInsertRowid);
+  logActivity(req, 'table.added', `Added ${name.trim()} (${seats} seats)`);
+  announceTables();
+  res.status(201).json(db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(id));
+});
+
+// Owner: rename, change seats, or move a table on the map.
+app.patch('/api/admin/tables/:id', (req, res) => {
+  const table = db.prepare('SELECT * FROM dining_tables WHERE id = ? AND active = 1').get(Number(req.params.id));
+  if (!table) return res.status(404).json({ error: 'Table not found' });
+  const next = { ...table, ...req.body, seats: req.body?.seats === undefined ? table.seats : Number(req.body.seats) };
+  const problem = tableProblem(next, table.id);
+  if (problem) return res.status(400).json({ error: problem });
+  if (!onMap(next.x, 1280) || !onMap(next.y, 720)) return res.status(400).json({ error: 'Table is off the map' });
+  // Going from a 2-seater to a bigger table (or back) changes its shape.
+  const shape = (next.seats <= 2) === (table.seats <= 2) ? { ...next, w: table.w, h: table.h } : { ...next, ...resized({ ...table, x: next.x, y: next.y }, next.seats) };
+  db.prepare('UPDATE dining_tables SET name = ?, seats = ?, x = ?, y = ?, w = ?, h = ? WHERE id = ?')
+    .run(next.name.trim(), next.seats, Math.round(shape.x), Math.round(shape.y), shape.w, shape.h, table.id);
+  if (next.name.trim() !== table.name || next.seats !== table.seats) {
+    logActivity(req, 'table.edited', `${table.name} (${table.seats} seats) → ${next.name.trim()} (${next.seats} seats)`);
+  }
+  announceTables();
+  res.json(db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(table.id));
+});
+
+// Owner: remove a table. Past receipts keep the table's name.
+app.delete('/api/admin/tables/:id', (req, res) => {
+  const table = db.prepare('SELECT * FROM dining_tables WHERE id = ? AND active = 1').get(Number(req.params.id));
+  if (!table) return res.status(404).json({ error: 'Table not found' });
+  if (openTableOrders(table.id).length) return res.status(409).json({ error: `${table.name} has guests. Bill them out first.` });
+  db.prepare('UPDATE dining_tables SET active = 0 WHERE id = ?').run(table.id);
+  logActivity(req, 'table.removed', `Removed ${table.name}`);
+  announceTables();
+  res.json({ ok: true });
 });
 
 // ---------- Sales ----------
@@ -1134,7 +1381,23 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
   }
   const kitchenStatus = lines.some((l) => l.menuItem.sends_to_kitchen) ? 'new' : 'none';
 
-  let orderId;
+  // Dine-in: which table, how many, and when they sat down. No table = takeout / counter.
+  let table = null, guests = null, customerTag = null, seatedAt = null;
+  if (req.body?.table) {
+    const { tableId, guests: g, customerTag: tag, seatedAt: seated } = req.body.table;
+    table = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(Number(tableId));
+    if (!table) return res.status(400).json({ error: 'That table no longer exists' });
+    if (g !== undefined && g !== null && (!Number.isInteger(g) || g < 1 || g > 50)) return res.status(400).json({ error: 'Guests must be 1–50' });
+    if (tag && !['vip', 'repeat'].includes(tag)) return res.status(400).json({ error: 'Unknown customer type' });
+    guests = g ?? null;
+    customerTag = tag || null;
+    // A party adding to their table keeps the time they first sat down.
+    const already = openTableOrders(table.id)[0];
+    seatedAt = already ? already.seated_at ?? already.created_at : seated ? saleTime(seated) : rungUpAt;
+    if (seatedAt > rungUpAt) seatedAt = rungUpAt;
+  }
+
+  let orderId, announceStockChanges;
   db.exec('BEGIN');
   try {
     // Cashier receipts run 1001, 1002…; the barista bar has its own series, printed B-0001, B-0002…
@@ -1145,11 +1408,13 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
       db
         .prepare(
           `INSERT INTO orders (client_id, station, receipt_no, created_at, payment_method, subtotal_cents, tax_cents,
-             total_cents, kitchen_status, cash_tendered_cents, change_cents, staff_id, staff_name)
-           VALUES (?, ?, ?, ?, 'cash', ?, ?, ?, ?, ?, ?, ?, ?)`
+             total_cents, kitchen_status, cash_tendered_cents, change_cents, staff_id, staff_name,
+             table_id, table_name, guests, customer_tag, seated_at)
+           VALUES (?, ?, ?, ?, 'cash', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(clientId, station, next, rungUpAt, subtotal, tax, total, kitchenStatus, tendered,
-          tendered === null ? null : tendered - total, req.staff?.id ?? null, req.staff?.name ?? null)
+          tendered === null ? null : tendered - total, req.staff?.id ?? null, req.staff?.name ?? null,
+          table?.id ?? null, table?.name ?? null, guests, customerTag, seatedAt)
         .lastInsertRowid
     );
     const insertItem = db.prepare(
@@ -1159,14 +1424,19 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
     for (const { menuItem, qty } of lines) {
       insertItem.run(orderId, menuItem.id, menuItem.name, menuItem.price_cents, qty, menuItem.sends_to_kitchen);
     }
+    const sold = new Map();
+    for (const { menuItem, qty } of lines) sold.set(menuItem.id, (sold.get(menuItem.id) ?? 0) + qty);
+    announceStockChanges = applyRecipes(req, sold, `Receipt #${receiptLabel({ station, receipt_no: next })}`);
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
   }
+  announceStockChanges();
 
   const order = loadOrder(orderId);
   storeBroadcast(['kitchen', 'admin', 'pos', 'barista']).emit('order.created', order);
+  if (order.table_id) announceTables();
   notifyOwnerOverview();
   res.status(201).json(order);
 });
@@ -1239,39 +1509,56 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
 
   // Keep the kitchen in step: new kitchen items reopen a finished ticket,
   // and a ticket with no kitchen items left disappears.
+  // An item the kitchen already marked ready stays ready unless more of it was added.
+  const readyAt = new Map();
+  for (const i of order.items) {
+    const ready = readyAt.has(i.menu_item_id) ? readyAt.get(i.menu_item_id) && i.kitchen_ready_at : i.kitchen_ready_at;
+    readyAt.set(i.menu_item_id, ready || null);
+  }
+  for (const l of lines) l.kitchen_ready_at = l.qty <= (before.get(l.menu_item_id)?.qty ?? 0) ? readyAt.get(l.menu_item_id) ?? null : null;
   const hasKitchenItems = lines.some((l) => l.sends_to_kitchen);
   const moreForKitchen = lines.some((l) => l.sends_to_kitchen && l.qty > (before.get(l.menu_item_id)?.qty ?? 0));
+  const allReady = hasKitchenItems && lines.every((l) => !l.sends_to_kitchen || l.kitchen_ready_at);
   let kitchenStatus = order.kitchen_status;
   if (!hasKitchenItems && ['new', 'preparing', 'none'].includes(kitchenStatus)) kitchenStatus = 'none';
   else if (hasKitchenItems && kitchenStatus === 'none') kitchenStatus = 'new';
   else if (moreForKitchen && kitchenStatus === 'ready') kitchenStatus = 'new';
+  else if (allReady && ['new', 'preparing'].includes(kitchenStatus)) kitchenStatus = 'ready';
   const reopened = kitchenStatus === 'new' && order.kitchen_status !== 'new';
+  const finished = kitchenStatus === 'ready' && order.kitchen_status !== 'ready';
+  const sold = new Map();
+  for (const id of new Set([...before.keys(), ...wanted.keys()])) sold.set(id, (wanted.get(id) ?? 0) - (before.get(id)?.qty ?? 0));
+  let announceStockChanges;
 
   db.exec('BEGIN');
   try {
     db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
     const insertItem = db.prepare(
-      `INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, kitchen_ready_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
-    for (const l of lines) insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen);
+    for (const l of lines) insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, l.kitchen_ready_at);
+    const now = new Date().toISOString();
     db.prepare(
       `UPDATE orders SET subtotal_cents = ?, tax_cents = ?, total_cents = ?, kitchen_status = ?,
          kitchen_started_at = CASE WHEN ? THEN NULL ELSE kitchen_started_at END,
-         kitchen_ready_at   = CASE WHEN ? THEN NULL ELSE kitchen_ready_at END,
+         kitchen_ready_at   = CASE WHEN ? THEN NULL WHEN ? THEN ? ELSE kitchen_ready_at END,
          edited_at = ?, edit_count = edit_count + 1
        WHERE id = ?`
-    ).run(subtotal, tax, total, kitchenStatus, reopened ? 1 : 0, reopened ? 1 : 0, new Date().toISOString(), order.id);
+    ).run(subtotal, tax, total, kitchenStatus, reopened ? 1 : 0, reopened ? 1 : 0, finished ? 1 : 0, now, now, order.id);
     logActivity(req, 'order.edited',
       `Edited receipt #${order.receipt_label}: ${changes.join(', ')} (${money(order.total_cents)} → ${money(total)})`, order.id);
+    announceStockChanges = applyRecipes(req, sold, `Receipt #${order.receipt_label} edited`);
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
   }
+  announceStockChanges();
 
   const updated = loadOrder(order.id);
   storeBroadcast(['kitchen', 'admin', 'pos', 'barista']).emit('order.updated', updated);
+  if (updated.table_id) announceTables();
   notifyOwnerOverview();
   res.json({ order: updated, differenceCents: total - order.total_cents });
 });
@@ -1286,13 +1573,26 @@ app.post('/api/orders/:id/void', requireRole(...SELLERS), (req, res) => {
   if (!reason || reason.length > 200) return res.status(400).json({ error: 'Give a reason for voiding (up to 200 characters)' });
 
   const kitchenStatus = ['new', 'preparing'].includes(order.kitchen_status) ? 'cancelled' : order.kitchen_status;
-  db.prepare(
-    `UPDATE orders SET status = 'voided', void_reason = ?, voided_at = ?, voided_by = ?, kitchen_status = ? WHERE id = ?`
-  ).run(reason, new Date().toISOString(), req.role, kitchenStatus, order.id);
-  logActivity(req, 'order.voided', `Voided receipt #${order.receipt_label} (${money(order.total_cents)}): ${reason}`, order.id);
+  const returned = new Map();
+  for (const i of order.items) returned.set(i.menu_item_id, (returned.get(i.menu_item_id) ?? 0) - i.qty);
+  let announceStockChanges;
+  db.exec('BEGIN');
+  try {
+    db.prepare(
+      `UPDATE orders SET status = 'voided', void_reason = ?, voided_at = ?, voided_by = ?, kitchen_status = ? WHERE id = ?`
+    ).run(reason, new Date().toISOString(), req.role, kitchenStatus, order.id);
+    logActivity(req, 'order.voided', `Voided receipt #${order.receipt_label} (${money(order.total_cents)}): ${reason}`, order.id);
+    announceStockChanges = applyRecipes(req, returned, `Receipt #${order.receipt_label} voided`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  announceStockChanges();
 
   const updated = loadOrder(order.id);
   storeBroadcast(['kitchen', 'admin', 'pos', 'barista']).emit('order.updated', updated);
+  if (updated.table_id) announceTables();
   notifyOwnerOverview();
   res.json(updated);
 });
@@ -1324,8 +1624,40 @@ app.patch('/api/orders/:id/kitchen', requireRole('kitchen'), (req, res) => {
     db.prepare(
       "UPDATE orders SET kitchen_status = 'ready', kitchen_started_at = COALESCE(kitchen_started_at, ?), kitchen_ready_at = ? WHERE id = ?"
     ).run(now, now, order.id);
+    db.prepare('UPDATE order_items SET kitchen_ready_at = COALESCE(kitchen_ready_at, ?) WHERE order_id = ? AND sends_to_kitchen = 1').run(now, order.id);
   } else {
     return res.status(409).json({ error: `Cannot move ticket from ${order.kitchen_status} to ${status}` });
+  }
+
+  const updated = loadOrder(order.id);
+  storeBroadcast(['kitchen', 'admin']).emit('ticket.updated', updated);
+  res.json(updated);
+});
+
+// Kitchen -> server: one item on a ticket is ready (or tapped again: not ready after all).
+// The ticket starts when the first item is ready and is finished when the last one is.
+app.patch('/api/orders/:id/items/:itemId/kitchen', requireRole('kitchen'), (req, res) => {
+  const { ready } = req.body ?? {};
+  if (typeof ready !== 'boolean') return res.status(400).json({ error: 'ready must be true or false' });
+  const order = db.prepare("SELECT * FROM orders WHERE id = ? AND status = 'paid'").get(Number(req.params.id));
+  if (!order || !['new', 'preparing'].includes(order.kitchen_status)) return res.status(409).json({ error: 'This ticket is no longer open' });
+  const item = db.prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ? AND sends_to_kitchen = 1').get(Number(req.params.itemId), order.id);
+  if (!item) return res.status(404).json({ error: 'Item not found on this ticket' });
+
+  const now = new Date().toISOString();
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE order_items SET kitchen_ready_at = ? WHERE id = ?').run(ready ? now : null, item.id);
+    const waiting = db.prepare('SELECT COUNT(*) AS n FROM order_items WHERE order_id = ? AND sends_to_kitchen = 1 AND kitchen_ready_at IS NULL').get(order.id).n;
+    if (waiting === 0) {
+      db.prepare("UPDATE orders SET kitchen_status = 'ready', kitchen_started_at = COALESCE(kitchen_started_at, ?), kitchen_ready_at = ? WHERE id = ?").run(now, now, order.id);
+    } else if (ready && order.kitchen_status === 'new') {
+      db.prepare("UPDATE orders SET kitchen_status = 'preparing', kitchen_started_at = ? WHERE id = ?").run(now, order.id);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
 
   const updated = loadOrder(order.id);
