@@ -114,3 +114,47 @@ html[data-store="rairock"] .pos-main:before{background:url('/rairock/brand/backg
 .tables-board.compact .table-detail h3{font-size:1rem}
 .tables-board.compact .sheet-actions{flex-wrap:wrap}
 @media(max-width:1000px){.tables-board.compact{grid-template-columns:1fr}}
+/* Owner's dashboard: one section at a time, picked from the side menu (a scrolling row on phones). */
+.admin-shell{display:grid;grid-template-columns:210px minmax(0,1fr);align-items:start}
+.admin-shell .admin{width:100%}
+.admin-nav{position:sticky;top:0;display:grid;gap:4px;padding:16px 10px;min-height:calc(100dvh - 64px);background:var(--surface);border-right:1px solid var(--border)}
+.admin-nav button{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:46px;padding:10px 14px;border:0;border-radius:10px;background:none;color:var(--muted);font:700 .95rem var(--body);text-align:left;cursor:pointer}
+.admin-nav button:hover{background:var(--surface-2);color:var(--text)}
+.admin-nav button.active{background:var(--accent);color:var(--accent-text)}
+.admin-nav button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.nav-count,.tab-count{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:99px;background:var(--warn);color:#fff;font-size:.75rem;font-weight:800}
+.admin-nav button.active .nav-count{background:var(--accent-text);color:var(--accent)}
+.tab-count{margin-left:6px;min-width:20px;height:20px}
+.section-title{font-size:1.3rem;margin:0}
+.attention{display:flex;flex-wrap:wrap;gap:8px}
+.attention button{flex:1 1 200px;padding:12px 14px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--surface);color:var(--text);font:600 .95rem var(--body);text-align:left;cursor:pointer}
+.attention button strong{color:var(--warn);font-size:1.15rem;margin-right:4px}
+.attention button:hover{background:var(--surface-2)}
+@media(max-width:800px){
+  .admin-shell{grid-template-columns:1fr}
+  .admin-nav{z-index:5;display:flex;min-height:0;overflow-x:auto;padding:8px 12px;border-right:0;border-bottom:1px solid var(--border);scrollbar-width:none}
+  .admin-nav button{flex:none;min-height:40px;padding:8px 12px}
+}
+/* "More" menu for actions used now and then. */
+.more-menu{position:relative}
+.more-btn{white-space:nowrap}
+.more-list{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:grid;min-width:220px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 10px 30px #0003}
+.more-list button{min-height:44px;padding:10px 12px;border:0;border-radius:8px;background:none;color:var(--text);font:600 .95rem var(--body);text-align:left;cursor:pointer}
+.more-list button:hover,.more-list button:focus-visible{background:var(--surface-2)}
+.more-list button.danger{color:var(--danger)}
+.admin-nav{align-content:start}
+.topbar .more-btn{background:transparent;color:var(--topbar-text);border-color:#ffffff55}
+.tile .btn{color:var(--text)}
+@media(max-width:800px){.topbar .brand-sub{display:none}}
+/* Phones: logo and More on one line, tabs below; categories become a row you swipe sideways. */
+@media(max-width:760px){
+  .pos-head{gap:8px 10px;padding:10px 12px 6px}
+  .pos-head .views{order:3;width:100%;justify-content:space-between;overflow-x:auto}
+  .pos-head .view-tab{flex:1;padding:8px 10px}
+  .pos-head .head-right{margin-left:auto}
+  .menu-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  .menu-sidebar{padding:6px 12px;border-right:0;border-bottom:1px solid var(--border);overflow-x:auto;overflow-y:hidden}
+  .menu-sidebar h2{display:none}
+  .menu-sidebar .categories{flex-direction:row;gap:6px}
+  .menu-sidebar .chip{width:auto;min-height:40px;white-space:nowrap;padding:8px 12px}
+}

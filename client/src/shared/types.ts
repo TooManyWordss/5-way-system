@@ -1,0 +1,13 @@
+export type Role = 'pos' | 'barista' | 'kitchen' | 'inventory' | 'admin';
+export type User = { role: Role; name?: string; staff?: { id: number; name: string; role: Role } | null };
+export type MenuItem = { id: number; name: string; category: string; price_cents: number; available: number; sends_to_kitchen?: number; description?: string; descriptionNote?: string; descriptionSources?: { title: string; url: string }[] };
+export type Line = { id?: number; menu_item_id: number; name?: string; qty: number; unit_price_cents?: number; sends_to_kitchen?: number; kitchen_ready_at?: string | null };
+export type Party = { seated_at: string; guests: number; customer_tag: string | null; total_cents: number; receipts: { id: number; label: string; total_cents: number; created_at: string }[] };
+export type DiningTable = { id: number; name: string; seats: number; x: number; y: number; w: number; h: number; party: Party | null };
+export type TableChoice = { id: number; name: string; guests: number; tag: 'vip' | 'repeat' | null; seatedAt: string };
+export type Recipe ={ menu_item_id: number; inventory_item_id: number; qty: number; name: string; unit: string };
+export type Order = { table_id?: number | null; table_name?: string | null; guests?: number | null; customer_tag?: string | null; seated_at?: string | null; billed_out_at?: string | null; id: number; client_id?: string; station: string; receipt_no: number; receipt_label?: string; created_at: string; items: Line[]; total_cents: number; subtotal_cents: number; tax_cents: number; cash_tendered_cents?: number; change_cents?: number; status: string; kitchen_status: string; edit_count: number; void_reason?: string; voided_at?: string; staff_name?: string };
+export type Summary = { gross_cents: number; order_count: number; void_count: number; void_cents: number; edited_count?: number; trading_days?: number };
+export type DayReport = { date: string; isToday: boolean; summary: Summary; topItems: { name: string; qty: number; revenue_cents: number }[]; orders: Order[]; logs: any[] };
+export type InventoryItem = { id: number; name: string; unit: string; quantity: number; threshold: number; low: boolean; updated_by?: string; updated_at: string };
+export type EventRow = { key?: string; custom_id?: number; name: string; start: string; end: string; kind: string; note?: string; hidden?: boolean; status?: string; during?: any; baseline_per_day_cents?: number; lift_pct?: number; last_year?: any };

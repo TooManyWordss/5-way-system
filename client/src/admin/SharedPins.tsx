@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
 type PinRole = 'pos' | 'barista' | 'kitchen' | 'inventory';
 type Props = {
