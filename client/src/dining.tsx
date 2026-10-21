@@ -124,12 +124,12 @@ function DiningReceipt({ visit: v, bill, config }: { visit: any; bill: any; conf
   return <div className="print-receipt dining-print"><div className="r-center r-name">Café Ambiente</div><p>{v.receipt_no ? `Receipt #${v.receipt_no}` : 'PROVISIONAL · OFFLINE BILL'}</p><p>{v.table_name} · {v.guests} guests · {when(v.settled_at)}</p>{linesOf(v).filter(l => l.qty).map(l => <div className="r-row" key={l.id}><span>{l.qty} × {l.name}</span><span>{money(l.qty * l.unit_price_cents)}</span></div>)}<hr/><div className="r-row"><span>Subtotal</span><span>{money(bill.subtotal_cents)}</span></div><div className="r-row"><span>Discount {v.discount?.label}</span><span>−{money(bill.discount_cents)}</span></div>{v.discount && <p>{v.discount.reason}</p>}<div className="r-row"><span>Tax</span><span>{money(bill.tax_cents)}</span></div><div className="r-row r-total"><strong>Total</strong><strong>{money(bill.total_cents)}</strong></div><div className="r-row"><span>Cash</span><span>{money(v.cash_cents)}</span></div><div className="r-row"><span>Change</span><span>{money(v.change_cents)}</span></div>{v.status === 'refunded' && <p>REFUNDED / VOIDED</p>}{(config?.footer??['Thank you! Please come again.']).map((line,index)=><p className="r-center" key={index}>{line}</p>)}</div>;
 }
 
-export function DiningKitchen({ role, started, chime }: { role: string; started: boolean; chime: () => void }) {
+export function DiningKitchen({ role, started, chime, includeCounter = true }: { role: string; started: boolean; chime: () => void; includeCounter?: boolean }) {
   const service = useDining(role), previous = useRef<Set<string> | null>(null);
   const state = service.state;
   const tickets: any[] = state ? [
     ...Object.values(state.visits).flatMap(v => v.submissions.filter((s: any) => ['new', 'preparing'].includes(ticketState(s)) || (s.change_seq ?? 0) > (s.acknowledged_seq ?? 0)).map((s: any) => ({ key: s.id, time: s.submitted_at, visit: v, submission: s, status: ticketState(s), lines: s.lines, title: v.table_name }))),
-    ...Object.values(state.counterOrders).filter(o => ['new', 'preparing'].includes(o.kitchen_status)).map(o => ({ key: `counter:${o.id}`, time: o.created_at, order: o, status: o.kitchen_status, lines: o.items, title: `#${o.receipt_label}` })),
+    ...Object.values(includeCounter ? state.counterOrders : {}).filter(o => ['new', 'preparing'].includes(o.kitchen_status)).map(o => ({ key: `counter:${o.id}`, time: o.created_at, order: o, status: o.kitchen_status, lines: o.items, title: `#${o.receipt_label}` })),
   ].sort((a, b) => a.time.localeCompare(b.time) || a.key.localeCompare(b.key)) : [];
   useEffect(() => {
     const keys = new Set(tickets.filter(t => ['new', 'preparing'].includes(t.status)).map(t => t.key));

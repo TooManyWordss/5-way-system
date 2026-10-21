@@ -30,6 +30,24 @@ The frontend is React + TypeScript and builds to `dist/`. For a production-style
 
 The server prints the addresses to use, for example `http://192.168.1.20:3000`.
 
+### Where the code lives
+
+Each feature has its own folder, on the screen side (`client/src/`) and the server side (`server/`).
+
+| Feature | Screens (`client/src/`) | Server (`server/`) |
+|---|---|---|
+| POS and barista till | `pos/` | `sales/` (orders, edits, voids) |
+| Tables and floor map | `tables/` | `tables/` (layout, bill out) |
+| Kitchen display | `kitchen/` | `kitchen/` |
+| Inventory and recipes | `inventory/` | `inventory/` |
+| Owner's dashboard | `admin/` | `admin/` (reports, events), `staff/` |
+| Receipt printing (ESC/POS) | `printing/` | — |
+| Sign-in | `login/`, `launcher/` | `auth/`, `passkeys/` |
+| Menu | `pos/MenuItemCard.tsx` | `menu/` |
+| Shared pieces | `shared/` (API calls, formatting, dialogs) | `core/` (settings, database, web server) |
+
+`server.js` starts the server and loads each feature's routes; `client/src/main.tsx` picks the screen to show.
+
 | Screen | URL | Login |
 |---|---|---|
 | POS | `/pos` | `POS_PIN` |
@@ -204,6 +222,19 @@ the corresponding Ambiente codes. `RAIROCK_ADMIN_PASSWORD` optionally overrides
 the shared owner password. Receipt header and footer can also be set with
 `RAIROCK_RECEIPT_HEADER` and `RAIROCK_RECEIPT_FOOTER`.
 
-Printing still uses the device's browser print screen. Automatic printer and cash
-drawer control needs the selected POS device, printer, and drawer models before a
-compatible connection can be built and tested.
+Receipt printing supports the browser print screen, ESC/POS via RawBT, WebUSB,
+and Bluetooth LE. Hardware compatibility depends on the selected printer.
+
+The default cashier workflow uses the floor map: table ? order ? payment ? print.
+More ? Counter sale opens the till without table selection. Unpaid tabs remains
+available separately for the existing unpaid-visit workflow. The owner's Overview
+includes the KPI dashboard; Floor map edits the layout and Tables & menu manages
+unpaid visits. Paid floor-map receipts feed the service metrics and live occupancy.
+Unavailable service timestamps are left blank rather than estimated.
+
+The merged schema stores physical floor tables in floor_tables and document-based
+unpaid tables in dining_tables. Startup preserves either previous table format.
+These are separate workflows; the same party should not be seated in both.
+Recipe stock changes are preserved on sale, receipt edits, voids, and receipt undo.
+
+Validation: npm run typecheck, npm run build, npm test, npm run test:browser.

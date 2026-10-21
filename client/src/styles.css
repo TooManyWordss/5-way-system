@@ -48,3 +48,240 @@ html[data-store="rairock"] .pos-main:before{background:url('/rairock/brand/backg
 
 .menu-card{position:relative;min-width:0;align-self:start}.menu-card[data-expanded=true]{z-index:5}.menu-card>.menu-item{width:100%;touch-action:pan-y;-webkit-touch-callout:none;user-select:none}.menu-card[data-expanded=true]>.menu-item{border-bottom-left-radius:0;border-bottom-right-radius:0}.menu-card>.menu-item.pending{cursor:pointer}.menu-card-description{position:absolute;top:100%;left:0;right:0;padding:14px 12px;border-radius:0 0 14px 14px;background:color-mix(in srgb,var(--surface-2) 90%,black);box-shadow:0 8px 16px #0003;overflow-wrap:anywhere;max-height:min(340px,45dvh);overflow:auto;overscroll-behavior:contain}.menu-card-description p{margin:0 0 10px;font-size:.92rem;line-height:1.6}.menu-card-description p:last-child{margin-bottom:0}.menu-card-description .menu-card-note{font-size:.8rem;color:var(--muted)}.menu-item:focus-visible,.menu-card-description:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .menu-description-toolbar{position:sticky;top:-14px;display:flex;justify-content:flex-end;margin:-14px -12px 8px;padding:2px 6px;background:color-mix(in srgb,var(--surface-2) 90%,black);z-index:1}.menu-description-close{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;min-width:76px;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:.85rem;font-weight:700;cursor:pointer}.menu-description-close:hover{background:#ffffff12}.menu-description-close:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.menu-description-close span{font-size:1.25rem;line-height:1}
+.ticket-item{width:100%;display:flex;align-items:center;gap:8px;min-height:52px;padding:6px 10px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.ticket-item .tick{flex:none;display:grid;place-items:center;width:30px;height:30px;border:2px solid var(--border);border-radius:8px;font-size:1.1rem;font-weight:800}
+.ticket-item.done{background:var(--surface-2);color:var(--muted)}
+.ticket-item.done .ti-name{text-decoration:line-through}
+.ticket-item.done .tick{border-color:var(--ok);background:var(--ok);color:var(--surface)}
+.ticket-item:disabled{cursor:default;opacity:.7}
+.detail-items .ready-mark{color:var(--ok);font-weight:700}
+.detail-actions{display:flex;gap:8px;justify-content:flex-end;padding:0 8px 8px}
+.line-editor{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:8px}
+.line-editor li{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:10px}
+.line-editor .qty{display:flex;align-items:center;gap:6px}
+.line-editor .qty button{width:34px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-weight:800}
+.line-editor input{width:90px;padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
+.add-row{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:12px}
+.add-row select,.recipe-pick select{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text)}
+.recipe-pick{margin-bottom:10px}
+.recipe-list{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.recipe-list li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)}
+.recipe-list button{font:inherit}
+.floor-map{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px}
+.floor-map svg{display:block;width:100%;height:auto;touch-action:none;user-select:none}
+.fm-decor rect,.fm-decor path{fill:none;stroke:var(--border);stroke-width:3}
+.fm-decor .fm-cashier{fill:var(--surface-2);stroke:var(--muted)}
+.fm-decor .fm-entrance{stroke:var(--accent);stroke-width:6;stroke-linecap:round}
+.fm-decor text{fill:var(--muted);font:700 20px var(--body);text-anchor:middle}
+.fm-table{cursor:pointer;outline:none}
+.fm-table.movable{cursor:grab}
+.fm-hit{fill:transparent}
+.fm-top{fill:var(--surface-2);stroke:var(--muted);stroke-width:2.5}
+.fm-table text{fill:var(--text);font-family:var(--body);font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.fm-table.busy .fm-top{fill:var(--warn);stroke:var(--warn)}
+.fm-table.busy text{fill:var(--surface)}
+.fm-table.selected .fm-top{fill:var(--accent);stroke:var(--text);stroke-width:4}
+.fm-table.selected text{fill:var(--accent-text)}
+.fm-table:focus-visible .fm-top{stroke:var(--text);stroke-width:5}
+.fm-key{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin-top:6px;color:var(--muted);font-size:.85rem}
+.fm-swatch{display:inline-block;width:14px;height:14px;border-radius:4px;background:var(--surface-2);border:2px solid var(--muted);vertical-align:middle}
+.fm-swatch.busy{background:var(--warn);border-color:var(--warn)}
+.fm-swatch.selected{background:var(--accent);border-color:var(--text)}
+.tables-board{display:grid;gap:12px}
+.table-detail{display:grid;gap:6px}
+.table-detail h3{margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.table-detail p{margin:0}
+.table-form{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.table-form .qty{display:flex;align-items:center;gap:8px}
+.table-form .qty button{width:40px;height:40px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);font:inherit;font-weight:800}
+.table-chips{display:flex;flex-wrap:wrap;gap:6px}
+.table-chips .chip.busy:not(.active){border-color:var(--warn);color:var(--warn)}
+.table-pick{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;margin:0 0 8px;padding:10px 12px;border:1px dashed var(--border);border-radius:10px;background:var(--surface);color:var(--muted);font:inherit;text-align:left;cursor:pointer}
+.table-pick.chosen{border-style:solid;border-color:var(--accent);color:var(--text);font-weight:700}
+.ticket-table{font-size:1.1rem;padding:2px 8px;margin-left:6px;border-radius:8px;background:var(--surface-2);vertical-align:middle}
+.sheet:has(.tables-board){width:min(960px,calc(100vw - 32px))}
+.fm-chair{fill:var(--surface);stroke:var(--muted);stroke-width:2}
+.fm-table.busy .fm-chair{stroke:var(--warn)}
+.fm-table.selected .fm-chair{stroke:var(--accent);fill:var(--accent)}
+.pos-floor{flex:none;margin:8px 12px 4px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.pos-floor-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pos-floor-head .link{margin-left:auto}
+.tables-board.compact{grid-template-columns:minmax(0,1.7fr) minmax(170px,1fr);align-items:start;gap:10px;margin-top:6px}
+.tables-board.compact .floor-map{padding:2px;border:0}
+.tables-board.compact .floor-map svg{max-height:32dvh}
+.tables-board.compact .fm-key{font-size:.75rem;margin-top:2px}
+.tables-board.compact .table-detail{font-size:.9rem;align-content:start}
+.tables-board.compact .table-detail h3{font-size:1rem}
+.tables-board.compact .sheet-actions{flex-wrap:wrap}
+@media(max-width:1000px){.tables-board.compact{grid-template-columns:1fr}}
+/* Owner's dashboard: one section at a time, picked from the side menu (a scrolling row on phones). */
+.admin-shell{display:grid;grid-template-columns:210px minmax(0,1fr);align-items:start}
+.admin-shell .admin{width:100%}
+.admin-nav{position:sticky;top:0;display:grid;gap:4px;padding:16px 10px;min-height:calc(100dvh - 64px);background:var(--surface);border-right:1px solid var(--border)}
+.admin-nav a{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:46px;padding:10px 14px;border:0;border-radius:10px;background:none;color:var(--muted);font:700 .95rem var(--body);text-align:left;cursor:pointer}
+.admin-nav a:hover{background:var(--surface-2);color:var(--text)}
+.admin-nav a.active{background:var(--accent);color:var(--accent-text)}
+.admin-nav a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.nav-count,.tab-count{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:99px;background:var(--warn);color:#fff;font-size:.75rem;font-weight:800}
+.admin-nav a.active .nav-count{background:var(--accent-text);color:var(--accent)}
+.tab-count{margin-left:6px;min-width:20px;height:20px}
+.section-title{font-size:1.3rem;margin:0}
+.attention{display:flex;flex-wrap:wrap;gap:8px}
+.attention button{flex:1 1 200px;padding:12px 14px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--surface);color:var(--text);font:600 .95rem var(--body);text-align:left;cursor:pointer}
+.attention button strong{color:var(--warn);font-size:1.15rem;margin-right:4px}
+.attention button:hover{background:var(--surface-2)}
+@media(max-width:800px){
+  .admin-shell{grid-template-columns:1fr}
+  .admin-nav{z-index:5;display:flex;min-height:0;overflow-x:auto;padding:8px 12px;border-right:0;border-bottom:1px solid var(--border);scrollbar-width:none}
+  .admin-nav a{flex:none;min-height:40px;padding:8px 12px}
+}
+/* "More" menu for actions used now and then. */
+.more-menu{position:relative}
+.more-btn{white-space:nowrap}
+.more-list{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:grid;min-width:220px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 10px 30px #0003}
+.more-list button{min-height:44px;padding:10px 12px;border:0;border-radius:8px;background:none;color:var(--text);font:600 .95rem var(--body);text-align:left;cursor:pointer}
+.more-list button:hover,.more-list button:focus-visible{background:var(--surface-2)}
+.more-list button.danger{color:var(--danger)}
+.admin-nav{align-content:start}
+.topbar .more-btn{background:transparent;color:var(--topbar-text);border-color:#ffffff55}
+.tile .btn{color:var(--text)}
+@media(max-width:800px){.topbar .brand-sub{display:none}}
+/* Phones: logo and More on one line, tabs below; categories become a row you swipe sideways. */
+@media(max-width:760px){
+  .pos-head{gap:8px 10px;padding:10px 12px 6px}
+  .pos-head .views{order:3;width:100%;justify-content:space-between;overflow-x:auto}
+  .pos-head .view-tab{flex:1;padding:8px 10px}
+  .pos-head .head-right{margin-left:auto}
+  .menu-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  .menu-sidebar{padding:6px 12px;border-right:0;border-bottom:1px solid var(--border);overflow-x:auto;overflow-y:hidden}
+  .menu-sidebar h2{display:none}
+  .menu-sidebar .categories{flex-direction:row;gap:6px}
+  .menu-sidebar .chip{width:auto;min-height:40px;white-space:nowrap;padding:8px 12px}
+}
+/* ---------- Android tablets in landscape (Redmi Pad and similar) ---------- */
+/* No pull-to-refresh reload, tap flash, double-tap zoom or text selection while working the till. */
+html,body{overscroll-behavior:none}
+button,a,.fm-table,.chip,.view-tab{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.pos-shell,.kitchen-page,.tickets{-webkit-user-select:none;user-select:none}
+.pos-shell input,.pos-shell textarea{-webkit-user-select:text;user-select:text}
+.menu-grid,.cart-lines,.menu-sidebar,.receipt-list,.view{overscroll-behavior:contain}
+/* The open item description floats clearly above the cards below it. */
+.menu-card-description{border:1px solid var(--border);border-top:0;box-shadow:0 14px 30px #0005}
+/* The table map, once a table is picked, folds to a single line. */
+.pos-floor.folded{padding:6px 10px}
+.pos-floor-head .btn{margin-left:auto}
+.pos-floor-head .hint{margin:0}
+/* Tables tab: map and details side by side, using the full width. */
+.pos-shell[data-view=tables]{grid-template-columns:1fr}
+.pos-shell[data-view=tables] .pos-cart{display:none}
+.pos-shell[data-view=tables] .view{padding:6px 20px 20px;overflow:auto}
+@media(orientation:landscape) and (min-width:900px){
+  .tables-board:not(.compact){grid-template-columns:minmax(0,1fr) 290px;align-items:start}
+  .tables-board:not(.compact) .table-chips{grid-column:1/-1}
+  .tables-board:not(.compact) .floor-map svg{max-height:calc(100dvh - 190px)}
+  .tables-board .table-detail{align-content:start}
+  .sheet:has(.tables-board){width:min(1100px,calc(100vw - 32px));max-height:calc(100dvh - 24px)}
+  .sheet:has(.tables-board) .floor-map svg{max-height:calc(100dvh - 170px)}
+  .sheet:has(.tables-board) .table-chips{display:none}
+}
+/* Short landscape screens: compact order lines and cash buttons so nothing is cut off. */
+@media(orientation:landscape) and (max-height:820px) and (min-width:761px){
+  .pos-cart{padding-top:12px;padding-bottom:12px}
+  .cart-line{grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:4px 10px;padding:6px 0}
+  .cart-line .line-name{grid-column:1;grid-row:1}
+  .cart-line .qty{grid-column:2;grid-row:1}
+  .cart-line .line-total{grid-column:3;grid-row:1;text-align:right}
+  .cart-foot{gap:6px;padding-top:8px}
+  .pay-area{gap:6px}
+  .quick-cash{gap:5px}
+  .cash-btn{min-height:38px}
+  .totals .grand{font-size:1.25rem}
+  .btn.big{min-height:52px}
+  .table-pick{margin-bottom:4px;padding:8px 10px}
+  .tables-board.compact .floor-map svg{max-height:24dvh}
+}
+/* Kitchen ticket header: number and table on one line, waiting time underneath. */
+.ticket-head{flex-direction:column;align-items:flex-start;gap:2px}
+.ticket-head h2{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.ticket-table{white-space:nowrap;margin-left:0}
+/* VIP / Repeat customer read as buttons. */
+.table-form .chip{border:1px solid var(--border)}
+.table-form .chip.active{border-color:var(--text)}
+/* Cashier flow, step 1: the seats fill the screen; the order panel waits until a table is chosen. */
+.pos-shell[data-view=seats]{grid-template-columns:1fr}
+.pos-shell[data-view=seats] .pos-cart{display:none}
+.seats-view{display:grid;gap:12px;align-content:start;padding:4px 20px 20px;overflow:auto}
+.seats-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.seats-head h1{margin:0;font-size:1.35rem}
+.seats-head .hint{margin:4px 0 0}
+.seats-head .btn.big{min-height:54px;padding:10px 22px}
+.sale-done{padding:14px 18px;border-radius:var(--radius);background:var(--ok);color:#fff;font-size:1.25rem;font-weight:800;text-align:center}
+.seats-view .table-detail .btn.primary{min-height:52px;font-size:1.05rem}
+.seats-view .fm-table{cursor:pointer}
+/* Step 2: who the order is for, with a way back to the seats. */
+.order-for{display:flex;align-items:center;gap:10px;margin:8px 12px 4px;padding:8px 10px;border:1px solid var(--accent);border-radius:var(--radius);background:var(--surface)}
+.order-for strong{font-size:1.05rem}
+.order-for .hint{margin:0}
+@media(orientation:landscape) and (min-width:900px){
+  .seats-view .floor-map svg{max-height:calc(100dvh - 230px)}
+}
+.sale-done{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;color:var(--surface)}
+.sale-done .btn{background:var(--surface);color:var(--text);border-color:transparent}
+/* Cashier flow step bar: ① Table → ② Order → ③ Pay. */
+.flow-steps{display:flex;gap:6px;margin:2px 20px 6px;padding:4px;border-radius:999px;background:var(--surface-2)}
+.flow-steps button{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;border:0;border-radius:999px;background:none;color:var(--muted);font:700 1rem var(--body);cursor:pointer}
+.flow-steps button:disabled{opacity:.45;cursor:default}
+.flow-steps .step-num{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;border:2px solid currentColor;font-size:.85rem}
+.flow-steps button.current{background:var(--accent);color:var(--accent-text)}
+.flow-steps button.current .step-num{background:var(--accent-text);color:var(--accent);border-color:var(--accent-text)}
+.flow-steps button.done{color:var(--ok)}
+.flow-steps button.done .step-num{background:var(--ok);border-color:var(--ok);color:var(--surface)}
+/* Order bar: table, guests and customer type, adjustable without going back. */
+.order-for{flex-wrap:wrap}
+.order-for .qty.guests{display:inline-flex;align-items:center;gap:6px}
+.order-for .qty.guests button{width:34px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font:800 1rem var(--body)}
+.order-for .chip{border:1px solid var(--border);min-height:34px;padding:4px 12px}
+.order-for .chip.active{border-color:var(--text)}
+.order-for>.btn:last-child{margin-left:auto}
+/* Step 3: payment gets its own screen. */
+.pos-shell[data-view=pay]{grid-template-columns:1fr}
+.pos-shell[data-view=pay] .pos-cart{display:none}
+.pay-view{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:20px;align-items:start;padding:6px 20px 20px;overflow:auto}
+.pay-summary,.pay-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px;display:grid;gap:12px}
+.pay-summary h2{margin:0;font-size:1.15rem}
+.summary-lines{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:calc(100dvh - 330px);overflow:auto}
+.summary-lines li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:1.02rem}
+.pay-summary>.btn{justify-self:start}
+.pay-total{display:flex;justify-content:space-between;align-items:baseline}
+.pay-total span{color:var(--muted);font-weight:700}
+.pay-total strong{font-size:2.2rem;font-variant-numeric:tabular-nums}
+.pay-panel .cash-btn{min-height:54px;font-size:1.05rem}
+.pay-panel .tender input{font-size:1.4rem}
+.pay-panel .change-row strong{font-size:1.7rem}
+.pay-panel .btn.big{min-height:64px;font-size:1.25rem}
+@media(max-width:900px){.pay-view{grid-template-columns:1fr}}
+/* Connect another tablet: a QR code on white so any camera reads it. */
+.qr{width:min(260px,70vw);margin:4px auto;padding:8px;background:#fff;border-radius:12px}
+.qr svg{display:block;width:100%;height:auto}
+.connect-steps{margin:0;padding-left:20px;display:grid;gap:4px}
+.connect-url{margin:0;text-align:center;font-family:ui-monospace,monospace;font-size:.9rem;color:var(--muted);overflow-wrap:anywhere}
+/* Kitchen items: waiting → cooking → ready, one tap each. */
+.ticket-item{align-items:center}
+.ticket-item .ti-body{display:grid;gap:2px;min-width:0}
+.ticket-item .ti-state{font-size:.78rem;font-weight:700;color:var(--muted)}
+.ticket-item.cooking{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,var(--surface))}
+.ticket-item.cooking .tick{border-color:var(--warn);font-size:1rem}
+.ticket-item.cooking .ti-state{color:var(--warn)}
+.ticket-item.ready{background:var(--surface-2);color:var(--muted)}
+.ticket-item.ready .ti-name{text-decoration:line-through}
+.ticket-item.ready .tick{border-color:var(--ok);background:var(--ok);color:var(--surface)}
+.ticket-item.ready .ti-state{color:var(--ok)}
+/* POS confirmation pop-ups: big, clear buttons for a busy cashier. */
+.confirm-text{margin:0;font-size:1.1rem;line-height:1.5}
+.sheet .sheet-actions .btn.big{flex:1;min-height:56px}
+.lock-lines{max-height:min(45dvh,360px);overflow:auto}
+.print-done{margin:8px 0;padding:18px;border-radius:var(--radius);text-align:center;font-size:1.4rem;font-weight:800}
+.print-done.printed{background:var(--ok);color:var(--surface)}
+.print-done.skipped{background:var(--surface-2);color:var(--text)}
+
+.admin-nav a{text-decoration:none}

@@ -54,7 +54,7 @@ test('tablet POS survives offline reload and an interrupted payment response wit
     const snapshot = await (await context.request.get(`${server.base}/api/dining/state`)).json();
     const item = snapshot.menu.find(m => m.available && m.sends_to_kitchen);
     await page.goto(`${server.base}/pos`);
-    await page.getByRole('button', { name: 'Tables', exact: true }).click();
+    await page.getByRole('button', { name: 'Unpaid tabs', exact: true }).click();
     await page.getByRole('button', { name: /Browser Garden.*Available/ }).click();
     await page.getByLabel('Guests', { exact: true }).fill('3');
     await page.getByLabel('Guest alias (optional)').fill('Browser party');
@@ -79,7 +79,7 @@ test('tablet POS survives offline reload and an interrupted payment response wit
     await page.getByRole('button', { name: 'Finish eating', exact: true }).click();
     await page.getByRole('button', { name: 'Request bill', exact: true }).click();
     await page.reload();
-    await page.getByRole('button', { name: 'Tables', exact: true }).click();
+    await page.getByRole('button', { name: 'Unpaid tabs', exact: true }).click();
     await page.getByRole('button', { name: /Browser Garden.*Browser party/ }).click();
     assert.equal(await page.locator('.dining-submission').count(), 2);
     assert.match(await page.locator('.dining-sync').innerText(), /4 unsynced/);
@@ -111,7 +111,9 @@ test('tablet POS survives offline reload and an interrupted payment response wit
     assert.equal(await page.locator('.dining-print').evaluate(el => getComputedStyle(el.parentElement.parentElement.parentElement).display === 'none'), false);
     await page.emulateMedia({ media: 'screen' });
     // The existing counter till shares the manual discount rules and audited undo.
-    await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    await page.getByRole('button', { name: 'More', exact: false }).click();
+    await page.getByRole('menuitem', { name: 'Counter sale', exact: true }).click();
+    await page.evaluate(()=>localStorage.setItem('5way.ambiente.autoPrint','false'));
     await page.locator('.menu-item').filter({ hasText: item.name }).first().click();
     await page.locator('.pos-cart .qty button').last().click();
     await page.locator('.cart-head').getByRole('button', { name: 'Undo', exact: true }).click();
@@ -123,6 +125,7 @@ test('tablet POS survives offline reload and an interrupted payment response wit
     await page.getByRole('button', { name: 'Apply discount', exact: true }).click();
     await page.getByRole('button', { name: 'Exact', exact: true }).click();
     await page.getByRole('button', { name: 'Complete sale', exact: true }).click();
+    await page.getByRole('button', { name: 'No', exact: true }).click();
     await page.getByRole('button', { name: 'Undo saved action', exact: true }).waitFor();
     report = await (await context.request.get(`${server.base}/api/admin/day`)).json();
     assert.equal(report.summary.order_count, 2);
@@ -132,7 +135,7 @@ test('tablet POS survives offline reload and an interrupted payment response wit
     assert.match(await page.locator('.dining-global-undo').innerText(), /Return/);
     report = await (await context.request.get(`${server.base}/api/admin/day`)).json();
     assert.equal(report.summary.order_count, 1);
-    await page.getByRole('button', { name: 'Tables', exact: true }).click();
+    await page.getByRole('button', { name: 'Unpaid tabs', exact: true }).click();
     await page.getByRole('button', { name: /Browser Garden.*Browser party/ }).click();
     // Kitchen actions are also durable while disconnected, including after reload.
     const kitchenContext = await browser.newContext({ viewport: { width: 1024, height: 768 } });
@@ -178,7 +181,7 @@ test('two offline tablets retain competing parties and cash bills through owner 
       const context = await browser.newContext({ viewport: { width: 1024, height: 768 } }); contexts.push(context);
       await context.request.post(`${server.base}/api/login`, { data: { role: 'pos', secret: '1234' } });
       const page = await context.newPage(); pages.push(page);
-      await page.goto(`${server.base}/pos`); await page.getByRole('button', { name: 'Tables', exact: true }).click();
+      await page.goto(`${server.base}/pos`); await page.getByRole('button', { name: 'Unpaid tabs', exact: true }).click();
       await page.getByRole('button', { name: /^Shared Available/ }).waitFor();
       await context.setOffline(true);
       await page.getByRole('button', { name: /^Shared Available/ }).click();
@@ -202,6 +205,7 @@ test('two offline tablets retain competing parties and cash bills through owner 
     await owner.getByRole('button', { name: 'Today', exact: true }).click();
     await owner.locator('.kpi-dashboard[aria-busy=false]').waitFor();
     assert.equal(await owner.locator('.kpi-trend').count(), 2);
+    await owner.locator('.kpi-times .kpi-card').first().waitFor();
     assert.equal(await owner.locator('.kpi-times .kpi-card').count(), 5);
     if(process.env.DINING_SCREENSHOT_DIR){fs.mkdirSync(process.env.DINING_SCREENSHOT_DIR,{recursive:true});await owner.locator('.kpi-dashboard').screenshot({path:path.join(process.env.DINING_SCREENSHOT_DIR,'kpi-dashboard.png')});}
     await owner.getByRole('link', { name: /Tables & menu/ }).click();
@@ -228,5 +232,30 @@ test('two offline tablets retain competing parties and cash bills through owner 
     if(process.env.DINING_SCREENSHOT_DIR){fs.mkdirSync(process.env.DINING_SCREENSHOT_DIR,{recursive:true});await owner.locator('.dining-admin').screenshot({path:path.join(process.env.DINING_SCREENSHOT_DIR,'owner-table-service.png')});}
     for (const context of contexts) await context.close();
     await ownerContext.close();
+  } finally { await browser.close(); await server.close(); }
+});
+
+
+test('default tablet flow selects the floor-map table, confirms payment, and returns to seats', { timeout: 60000 }, async () => {
+  const server = await launch(), browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1024, height: 768 } });
+    await context.request.post(server.base+'/api/login', {data:{role:'pos',secret:'1234'}});
+    const page = await context.newPage(), errors=[];
+    page.on('pageerror',e=>errors.push(e.message));
+    await page.goto(server.base+'/pos');
+    await page.getByRole('heading',{name:'Where are the customers sitting?',exact:true}).waitFor();
+    await page.getByRole('button',{name:/^Table 1, .*free$/}).click();
+    await page.getByRole('button',{name:'Yes, Table 1',exact:true}).click();
+    await page.locator('.menu-item').first().click();
+    await page.getByRole('button',{name:'Next: Payment',exact:false}).click();
+    await page.getByRole('button',{name:'Yes, lock it in',exact:true}).click();
+    await page.getByRole('button',{name:'Exact',exact:true}).click();
+    await page.getByRole('button',{name:'Complete sale & print',exact:true}).click();
+    await page.getByRole('button',{name:'No',exact:true}).click();
+    await page.getByRole('heading',{name:'Where are the customers sitting?',exact:true}).waitFor();
+    const report=await (await context.request.get(server.base+'/api/pos/today')).json();
+    assert.equal(report.orders.length,1);assert.equal(report.orders[0].table_name,'Table 1');
+    assert.deepEqual(errors,[]);
   } finally { await browser.close(); await server.close(); }
 });

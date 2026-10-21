@@ -13,21 +13,21 @@ export function CafeBusinessOverview({ refresh }: { refresh: number }) {
     let active = true, sequence = 0;
     const load = async () => {
       const request = ++sequence;
-      const values = await Promise.allSettled(['/api/admin/day', '/api/dining/state', '/api/admin/inventory'].map(read));
+      const values = await Promise.allSettled(['/api/admin/day', '/api/dining/state', '/api/admin/inventory', '/api/tables'].map(read));
       if (!active || request !== sequence) return;
       const result: any = {}, failures: string[] = [];
-      values.forEach((value, i) => { if (value.status === 'fulfilled') result[['sales', 'dining', 'stock'][i]] = value.value; else failures.push(value.reason.message); });
+      values.forEach((value, i) => { if (value.status === 'fulfilled') result[['sales', 'dining', 'stock', 'floor'][i]] = value.value; else failures.push(value.reason.message); });
       setData(result); setErrors(failures); setAt(new Date().toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' }));
     };
     void load(); const interval = window.setInterval(load, 60000);
     window.addEventListener('dining.live', load); window.addEventListener('dining.business', load);
     return () => { active = false; clearInterval(interval); window.removeEventListener('dining.live', load); window.removeEventListener('dining.business', load); };
   }, [refresh]);
-  const { sales, dining, stock } = data;
+  const { sales, dining, stock, floor } = data;
   const visits: any[] = Object.values(dining?.visits ?? {});
   const active = visits.filter(v => !v.released_at && !['cancelled', 'refunded'].includes(v.status));
   const unpaid = active.filter(v => v.status === 'open');
-  const tables: any[] = Object.values(dining?.tables ?? {}).filter((t: any) => t.active);
+  const tables: any[] = [...Object.values(dining?.tables ?? {}).filter((t: any) => t.active), ...(floor ?? []).map((t: any) => ({...t,visit_id: t.party ? 'occupied' : null}))];
   const occupied = tables.filter(t => t.visit_id).length, percent = tables.length ? Math.round(occupied / tables.length * 100) : 0;
   const orders: any[] = sales?.orders?.filter((o: any) => o.status === 'paid') ?? [];
   const net = orders.reduce((sum, o) => sum + o.subtotal_cents - (o.discount_cents ?? 0), 0);

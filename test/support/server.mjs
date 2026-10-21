@@ -4,8 +4,9 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '../..');
-export async function launch() {
+export async function launch({ prepareData } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ambiente-dining-'));
+  if (prepareData) await prepareData(dir);
   const probe = net.createServer(); await new Promise(r => probe.listen(0, '127.0.0.1', r));
   const port = probe.address().port; await new Promise(r => probe.close(r));
   const child = spawn(process.execPath, ['server.js'], { cwd: root, env: { ...process.env, DATA_DIR: dir, PORT: String(port), POS_PIN: '1234', BARISTA_PIN: '1234', INVENTORY_PIN: '1234', KITCHEN_PIN: '4321', ADMIN_PASSWORD: 'test-password', SESSION_SECRET: 'dining-tests', TAX_RATE: '0.12', TZ: 'Asia/Manila' }, stdio: ['ignore', 'pipe', 'pipe'] });

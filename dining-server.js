@@ -39,7 +39,7 @@ export function initDiningSchema(db) {
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }
 
-export function registerDining({ app, db, requireRole, currentStore, broadcast, taxRate, loadOrder, logActivity, announceStock, receiptConfig }) {
+export function registerDining({ app, db, requireRole, currentStore, broadcast, taxRate, loadOrder, logActivity, announceStock, applyRecipes, extraMetricsVisits = () => [], receiptConfig }) {
   const onlyAmbiente = (req, res, next) => currentStore() === 'ambiente' ? next() : res.status(404).json({ error: 'Table service is available at Café Ambiente' });
   const readState = () => ({ ...Object.fromEntries(['tables', 'visits'].map(kind => [kind, Object.fromEntries(db.prepare(`SELECT id, document FROM dining_${kind}`).all().map(r => [r.id, JSON.parse(r.document)]))])), counterOrders: Object.fromEntries(db.prepare("SELECT id FROM orders WHERE visit_id IS NULL AND status = 'paid' AND (kitchen_status IN ('new', 'preparing') OR created_at >= ?)").all(new Date(Date.now() - 2 * 86400000).toISOString()).map(r => [String(r.id), loadOrder(r.id)])) });
   const writeState = (state, before) => {
@@ -239,6 +239,7 @@ export function registerDining({ app, db, requireRole, currentStore, broadcast, 
     const days = (Date.parse(end) - Date.parse(start)) / 86400000;
     if (!Number.isInteger(days) || days < 1 || days > 366) throw new DiningError('Choose a range of up to 366 days');
     const state = readState();
+    for (const visit of extraMetricsVisits()) state.visits[visit.id] = visit;
     const previousStart = new Date(Date.parse(start) - days * 86400000).toISOString();
     const daily = Array.from({ length: days }, (_, i) => {
       const at = Date.parse(start) + i * 86400000;
@@ -278,7 +279,7 @@ export function registerDining({ app, db, requireRole, currentStore, broadcast, 
   app.use((req, res, next) => {
     if (currentStore() !== 'ambiente' || !['POST', 'PATCH', 'DELETE'].includes(req.method)) return next();
     let match, kind;
-    if ((match = /^\/api\/orders(?:\/(\d+)(?:\/(void|kitchen|item-ready))?)?$/.exec(req.path))) kind = 'order';
+    if ((match = /^\/api\/orders(?:\/(\d+)(?:\/(void|kitchen|item-ready|items\/\d+\/kitchen))?)?$/.exec(req.path))) kind = 'order';
     else if ((match = /^\/api\/(?:admin\/)?inventory\/(\d+)(?:\/stock)?$/.exec(req.path))) kind = 'stock';
     else if ((match = /^\/api\/menu\/(\d+)\/availability$/.exec(req.path))) kind = 'menu';
     else if (req.path === '/api/inventory/items') { kind = 'stock'; match = []; }
@@ -347,7 +348,12 @@ export function registerDining({ app, db, requireRole, currentStore, broadcast, 
           const fields = ['subtotal_cents', 'tax_cents', 'total_cents', 'discount_cents', 'discount_json', 'status', 'kitchen_status', 'kitchen_started_at', 'kitchen_ready_at', 'cash_tendered_cents', 'change_cents', 'void_reason', 'voided_at', 'voided_by'];
           db.prepare(`UPDATE orders SET ${fields.map(f => `${f} = ?`).join(', ')}, edit_count = edit_count + 1, edited_at = ?, version = version + 1 WHERE id = ?`).run(...fields.map(f => before[f] ?? null), new Date().toISOString(), current.id);
           db.prepare('DELETE FROM order_items WHERE order_id = ?').run(current.id);
-          for (const l of before.items) db.prepare('INSERT INTO order_items (id, order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, ready_qty, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(l.id, current.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, l.ready_qty, l.note);
+          for (const l of before.items) db.prepare('INSERT INTO order_items (id, order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, ready_qty, note, kitchen_ready_at, kitchen_started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(l.id, current.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, l.ready_qty, l.note, l.kitchen_ready_at ?? null, l.kitchen_started_at ?? null);
+        }
+        if (applyRecipes) {
+          const restored = businessSnapshot('order', current.id), delta = new Map();
+          for (const [order, sign] of [[current, -1], [restored, 1]]) if (order.status === 'paid') for (const l of order.items) delta.set(l.menu_item_id, (delta.get(l.menu_item_id) ?? 0) + sign * l.qty);
+          applyRecipes(req, delta, 'Receipt undo')();
         }
       } else if (row.kind === 'event-visibility') {
         db.prepare("INSERT INTO settings (key, value) VALUES ('hidden_events', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(before.hidden));
