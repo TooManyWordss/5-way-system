@@ -80,6 +80,11 @@ test('sales take recipe stock out, edits and voids adjust it, and the kitchen ma
     {
       assert.ok(order.items.every((i) => i.sends_to_kitchen));
       const [first, second] = order.items;
+      // Tapping an item once starts it cooking; the ticket counts as started but nothing is ready yet.
+      const cooking = await call(`/api/orders/${order.id}/items/${second.id}/kitchen`, kitchen, 'PATCH', { state: 'cooking' });
+      assert.equal(cooking.body.kitchen_status, 'preparing');
+      const cookingItem = cooking.body.items.find((i) => i.id === second.id);
+      assert.ok(cookingItem.kitchen_started_at && !cookingItem.kitchen_ready_at);
       const one = await call(`/api/orders/${order.id}/items/${first.id}/kitchen`, kitchen, 'PATCH', { ready: true });
       assert.equal(one.status, 200);
       assert.equal(one.body.kitchen_status, 'preparing');
@@ -120,6 +125,14 @@ test('sales take recipe stock out, edits and voids adjust it, and the kitchen ma
     const billed = (await call('/api/admin/day', owner)).body.orders.find((o) => o.id === dineIn.body.id);
     assert.ok(billed.billed_out_at);
     assert.equal((await call(`/api/admin/tables/${t5.id}`, owner, 'PATCH', { name: 'Window', x: 500, y: 500 })).body.name, 'Window');
+
+    // The owner changes their own password from the dashboard; the old one stops working.
+    assert.equal((await call('/api/admin/password', owner, 'POST', { current: 'wrong', password: 'new-owner-pass' })).status, 403);
+    assert.equal((await call('/api/admin/password', owner, 'POST', { current: 'owner-password', password: 'short' })).status, 400);
+    assert.equal((await call('/api/admin/password', owner, 'POST', { current: 'owner-password', password: 'new-owner-pass' })).status, 200);
+    const tryLogin = (secret) => fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'admin', secret }) }).then((r) => r.status);
+    assert.equal(await tryLogin('owner-password'), 401);
+    assert.equal(await tryLogin('new-owner-pass'), 200);
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');

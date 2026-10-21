@@ -15,7 +15,12 @@ export const SECRETS = {
 export const environmentSecretFor = (role) => currentStore() === 'rairock'
   ? process.env[`RAIROCK_${role.toUpperCase()}_${role === 'admin' ? 'PASSWORD' : 'PIN'}`] || SECRETS[role]
   : SECRETS[role];
-export const pinHashFor = (role) => role === 'admin' ? null : getSetting(`pin_${role}_hash`, null);
+// Screen PINs and the owner's password can be changed from the dashboard; the saved hash then replaces the environment value.
+export const pinHashFor = (role) => getSetting(`pin_${role}_hash`, null);
+export function hashSecret(value) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return `scrypt:${salt}:${crypto.scryptSync(value, salt, 64).toString('hex')}`;
+}
 export const secretFor = (role) => pinHashFor(role) || environmentSecretFor(role);
 export function matchesSecret(role, value) {
   if (typeof value !== 'string') return false;

@@ -231,7 +231,7 @@ db.exec(`
   );
 `);
 // The kitchen can mark single items ready while the rest of the ticket is still being made.
-addMissingColumns('order_items', { kitchen_ready_at: 'TEXT' });
+addMissingColumns('order_items', { kitchen_ready_at: 'TEXT', kitchen_started_at: 'TEXT' }); // per item: cooking since / ready at
 
 db.exec(`
   -- The dining room. x, y, w, h place each table on the floor map (1280 × 720 drawing).

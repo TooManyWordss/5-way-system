@@ -1,7 +1,7 @@
 export type Role = 'pos' | 'barista' | 'kitchen' | 'inventory' | 'admin';
 export type User = { role: Role; name?: string; staff?: { id: number; name: string; role: Role } | null };
 export type MenuItem = { id: number; name: string; category: string; price_cents: number; available: number; sends_to_kitchen?: number; description?: string; descriptionNote?: string; descriptionSources?: { title: string; url: string }[] };
-export type Line = { id?: number; menu_item_id: number; name?: string; qty: number; unit_price_cents?: number; sends_to_kitchen?: number; kitchen_ready_at?: string | null };
+export type Line = { id?: number; menu_item_id: number; name?: string; qty: number; unit_price_cents?: number; sends_to_kitchen?: number; kitchen_ready_at?: string | null; kitchen_started_at?: string | null };
 export type Party = { seated_at: string; guests: number; customer_tag: string | null; total_cents: number; receipts: { id: number; label: string; total_cents: number; created_at: string }[] };
 export type DiningTable = { id: number; name: string; seats: number; x: number; y: number; w: number; h: number; party: Party | null };
 export type TableChoice = { id: number; name: string; guests: number; tag: 'vip' | 'repeat' | null; seatedAt: string };

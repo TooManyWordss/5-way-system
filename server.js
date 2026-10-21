@@ -20,6 +20,8 @@ import './server/tables/routes.js';
 import './server/sales/routes.js';
 import './server/kitchen/routes.js';
 import './server/admin/routes.js';
+import './server/cloud/routes.js';
+import './server/cloud/tablet.js';
 
 // React client routes fall through to Vite's built entry point. API misses stay JSON 404s.
 app.get('*', (req, res, next) => {
@@ -60,10 +62,16 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 
 httpServer.listen(PORT, () => {
   // Addresses the iPad and kitchen screen can use on the same Wi-Fi.
-  const lanHosts = Object.values(os.networkInterfaces())
-    .flat()
-    .filter((a) => a?.family === 'IPv4' && !a.internal)
-    .map((a) => a.address);
+  // Android (when the server runs on a tablet in Termux) may refuse to list them; the server runs anyway.
+  let lanHosts = [];
+  try {
+    lanHosts = Object.values(os.networkInterfaces())
+      .flat()
+      .filter((a) => a?.family === 'IPv4' && !a.internal)
+      .map((a) => a.address);
+  } catch {
+    console.log('  (This device does not list its network address. Find it under Wi-Fi settings → the network → IP address.)');
+  }
   console.log(`5 Way System running on port ${PORT}`);
   for (const host of ['localhost', ...lanHosts]) {
     console.log(`  http://${host}:${PORT}   (Ambiente: /pos, /admin · RaiRock: /rairock/pos, /rairock/admin)`);

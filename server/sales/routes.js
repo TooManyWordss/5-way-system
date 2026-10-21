@@ -191,7 +191,12 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
     const ready = readyAt.has(i.menu_item_id) ? readyAt.get(i.menu_item_id) && i.kitchen_ready_at : i.kitchen_ready_at;
     readyAt.set(i.menu_item_id, ready || null);
   }
-  for (const l of lines) l.kitchen_ready_at = l.qty <= (before.get(l.menu_item_id)?.qty ?? 0) ? readyAt.get(l.menu_item_id) ?? null : null;
+  const startedAt = new Map(order.items.map((i) => [i.menu_item_id, i.kitchen_started_at ?? null]));
+  for (const l of lines) {
+    const kept = l.qty <= (before.get(l.menu_item_id)?.qty ?? 0);
+    l.kitchen_ready_at = kept ? readyAt.get(l.menu_item_id) ?? null : null;
+    l.kitchen_started_at = kept ? startedAt.get(l.menu_item_id) ?? null : null;
+  }
   const hasKitchenItems = lines.some((l) => l.sends_to_kitchen);
   const moreForKitchen = lines.some((l) => l.sends_to_kitchen && l.qty > (before.get(l.menu_item_id)?.qty ?? 0));
   const allReady = hasKitchenItems && lines.every((l) => !l.sends_to_kitchen || l.kitchen_ready_at);
@@ -210,10 +215,10 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
   try {
     db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
     const insertItem = db.prepare(
-      `INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, kitchen_ready_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, kitchen_ready_at, kitchen_started_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    for (const l of lines) insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, l.kitchen_ready_at);
+    for (const l of lines) insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, l.kitchen_ready_at, l.kitchen_started_at);
     const now = new Date().toISOString();
     db.prepare(
       `UPDATE orders SET subtotal_cents = ?, tax_cents = ?, total_cents = ?, kitchen_status = ?,

@@ -1,5 +1,4 @@
-import crypto from 'node:crypto';
-import { secretFor } from '../auth/secrets.js';
+import { hashSecret, matchesSecret, secretFor } from '../auth/secrets.js';
 import { db } from '../core/db.js';
 import { pinAllowed, setSetting } from '../core/settings.js';
 import { logActivity } from '../sales/orders.js';
@@ -71,10 +70,21 @@ app.post('/api/admin/pins/:role', (req, res) => {
   if (typeof pin !== 'string' || !/^\d{4,12}$/.test(pin)) {
     return res.status(400).json({ error: 'PIN must be 4 to 12 digits' });
   }
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(pin, salt, 64).toString('hex');
-  setSetting(`pin_${role}_hash`, `scrypt:${salt}:${hash}`);
+  setSetting(`pin_${role}_hash`, hashSecret(pin));
   logActivity(req, 'settings.changed', `Changed the shared ${ROLE_LABEL[role].toLowerCase()} PIN`);
+  res.json({ ok: true });
+});
+
+// Owner: change the owner's password for this store. The current one is needed, so an unattended
+// signed-in phone can't be used to lock the owner out.
+app.post('/api/admin/password', (req, res) => {
+  const { current, password } = req.body ?? {};
+  if (!matchesSecret('admin', current)) return res.status(403).json({ error: 'Current password is wrong' });
+  if (typeof password !== 'string' || password.length < 10 || password.length > 200) {
+    return res.status(400).json({ error: 'New password must be at least 10 characters' });
+  }
+  setSetting('pin_admin_hash', hashSecret(password));
+  logActivity(req, 'settings.changed', 'Changed the owner password');
   res.json({ ok: true });
 });
 

@@ -1,9 +1,36 @@
 import path from 'node:path';
+import os from 'node:os';
 import { __dirname, PAGE, STOCK_KEEPERS, storePath } from '../core/config.js';
 import { matchesSecret, secretFor } from './secrets.js';
 import { can, isRole, loginFailures, readSession, requireRole, SELLERS, sessionCookie, startSession } from './sessions.js';
 import { pinAllowed } from '../core/settings.js';
 import { app } from '../core/http.js';
+
+// On the café tablet, requests that arrive through the internet link (cloudflared marks them with
+// cf-connecting-ip) may only use the owner's login. Staff screens stay on the café Wi-Fi, so their
+// short PINs can't be tried from the internet.
+app.use((req, res, next) => {
+  if (process.env.TUNNEL !== '1' || !req.headers['cf-connecting-ip']) return next();
+  const ownerOnly = () => res.status(403).json({ error: 'From outside the café, only the owner can sign in.' });
+  if (req.path === '/api/login' && req.body?.role !== 'admin') return ownerOnly();
+  if (req.path.startsWith('/api/passkeys')) return ownerOnly();
+  const session = readSession(req.headers.cookie);
+  if (session && session.role !== 'admin' && req.path.startsWith('/api/') && req.path !== '/api/me') return ownerOnly();
+  next();
+});
+
+// The address other tablets use to reach this one over the café Wi-Fi, for the "Connect kitchen tablet" QR code.
+// start.sh passes it in (Android often hides it from Node); otherwise the first network address found.
+app.get('/api/connect-info', requireRole(...SELLERS, 'kitchen'), (req, res) => {
+  let lanUrl = process.env.LAN_URL || null;
+  if (!lanUrl) {
+    try {
+      const ip = Object.values(os.networkInterfaces()).flat().find((a) => a?.family === 'IPv4' && !a.internal)?.address;
+      if (ip) lanUrl = `http://${ip}:${process.env.PORT || 3000}`;
+    } catch { /* not listed on this device */ }
+  }
+  res.json({ lanUrl });
+});
 
 for (const [role, page] of Object.entries(PAGE)) {
   app.get(`/${role}`, (req, res) => {
