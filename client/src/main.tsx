@@ -1,3 +1,5 @@
+import { AppErrorBoundary } from './app-error-boundary';
+import BusinessUndo from './business-undo';
 import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Admin } from './admin/Admin';
@@ -29,6 +31,9 @@ function App(){
       link.href=storeUrl(`/${role}.webmanifest`);
     }
   },[path,loginRole]);
+  useEffect(()=>{
+    if(STORE==='ambiente'&&path!=='/login'&&path!=='/login.html'&&'serviceWorker'in navigator&&window.isSecureContext)void navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{});
+  },[path]);
   if(path==='/login'||path==='/login.html')return <Login role={loginRole}/>;
   if(path==='/pos'||path==='/barista')return <Pos role={path==='/barista'?'barista':'pos'}/>;
   if(path==='/kitchen')return <Kitchen/>;
@@ -36,4 +41,4 @@ function App(){
   if(path==='/admin')return <Admin/>;
   return <Launcher/>;
 }
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+createRoot(document.getElementById('root')!).render(<React.StrictMode><AppErrorBoundary><App/>{STORE==='ambiente'&&<BusinessUndo/>}</AppErrorBoundary></React.StrictMode>);

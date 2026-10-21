@@ -77,3 +77,5 @@ app.use('/api/pos', requireRole(...SELLERS));
 app.use('/api/kitchen', requireRole('kitchen'));
 app.use('/api/inventory', requireRole(...STOCK_KEEPERS));
 app.use('/api/admin', requireRole('admin'));
+
+app.use('/api/orders', requireRole('pos', 'barista', 'kitchen'));

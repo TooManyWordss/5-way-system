@@ -27,14 +27,14 @@ export function resized(t, seats = t.seats) {
 }
 export function seedTables() {
   if (currentStore() === 'ambiente' && getSetting('tables_seeded', '') !== '1') {
-    const insert = db.prepare('INSERT INTO dining_tables (name, seats, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO floor_tables (name, seats, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const now = new Date().toISOString();
     for (const t of AMBIENTE_TABLES) insert.run(...t, now);
     setSetting('tables_seeded', '1');
   }
   if (getSetting('tables_uniform', '') !== '1') {
-    const update = db.prepare('UPDATE dining_tables SET x = ?, y = ?, w = ?, h = ? WHERE id = ?');
-    for (const t of db.prepare('SELECT * FROM dining_tables').all()) {
+    const update = db.prepare('UPDATE floor_tables SET x = ?, y = ?, w = ?, h = ? WHERE id = ?');
+    for (const t of db.prepare('SELECT * FROM floor_tables').all()) {
       const { x, y, w, h } = resized(t);
       update.run(x, y, w, h, t.id);
     }

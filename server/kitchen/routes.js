@@ -36,6 +36,7 @@ app.patch('/api/orders/:id/kitchen', requireRole('kitchen'), (req, res) => {
     return res.status(409).json({ error: `Cannot move ticket from ${order.kitchen_status} to ${status}` });
   }
 
+  if(status==='ready')db.prepare('UPDATE order_items SET ready_qty = qty WHERE order_id = ? AND sends_to_kitchen = 1').run(order.id);
   const updated = loadOrder(order.id);
   storeBroadcast(['kitchen', 'admin']).emit('ticket.updated', updated);
   res.json(updated);
@@ -53,10 +54,11 @@ app.patch('/api/orders/:id/items/:itemId/kitchen', requireRole('kitchen'), (req,
   if (!item) return res.status(404).json({ error: 'Item not found on this ticket' });
 
   const now = new Date().toISOString();
-  db.exec('BEGIN');
+  db.exec('SAVEPOINT feature_write');
   try {
     const started = state === 'waiting' ? null : item.kitchen_started_at ?? now;
     db.prepare('UPDATE order_items SET kitchen_started_at = ?, kitchen_ready_at = ? WHERE id = ?').run(started, state === 'ready' ? now : null, item.id);
+    db.prepare('UPDATE order_items SET ready_qty = ? WHERE id = ?').run(state === 'ready' ? item.qty : 0, item.id);
     const counts = db.prepare(
       `SELECT SUM(kitchen_ready_at IS NULL) AS waiting, SUM(kitchen_started_at IS NOT NULL OR kitchen_ready_at IS NOT NULL) AS touched
          FROM order_items WHERE order_id = ? AND sends_to_kitchen = 1`
@@ -68,9 +70,9 @@ app.patch('/api/orders/:id/items/:itemId/kitchen', requireRole('kitchen'), (req,
     } else {
       db.prepare("UPDATE orders SET kitchen_status = 'new', kitchen_started_at = NULL WHERE id = ?").run(order.id);
     }
-    db.exec('COMMIT');
+    db.exec('RELEASE feature_write');
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO feature_write; RELEASE feature_write');
     throw err;
   }
 

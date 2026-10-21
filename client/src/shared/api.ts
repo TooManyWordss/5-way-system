@@ -1,4 +1,4 @@
-import { screenPath, storageKey, storeUrl } from './store';
+import { screenPath, storageKey, storeUrl, STORE } from './store';
 import type { Role } from './types';
 
 export async function api<T = any>(url: string, options: { method?: string; body?: unknown; form?: FormData; redirectOnUnauthorized?: boolean } = {}): Promise<T> {
@@ -10,6 +10,7 @@ export async function api<T = any>(url: string, options: { method?: string; body
     throw Object.assign(new Error(payload.error ?? 'Please log in'), { status: 401 });
   }
   if (!response.ok) throw Object.assign(new Error(payload.error ?? `Request failed (${response.status})`), { status: response.status });
+  if (payload.undoId && STORE === 'ambiente') { window.dispatchEvent(new CustomEvent('dining.saved', { detail: payload.undoId })); window.dispatchEvent(new Event('dining.business')); }
   return payload as T;
 }
 export function roleFromPath(): Role { const p = screenPath().slice(1); return (['pos', 'barista', 'kitchen', 'inventory', 'admin'].includes(p) ? p : 'admin') as Role; }

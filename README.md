@@ -76,7 +76,7 @@ The Hobby plan is about $5/month. The database lives on a Railway volume, so sal
      | `POS_PIN`, `KITCHEN_PIN`, `ADMIN_PASSWORD`, `SESSION_SECRET` | same as your `.env`, or new ones |
      | `DATA_DIR` | `/data` |
      | `TRUST_PROXY` | `1` |
-     | `TZ` | the restaurant's time zone, e.g. `Asia/Manila` (otherwise "today" follows UTC) |
+     | `TZ` | the restaurant's time zone, e.g. `Asia/Manila` (defaults to `Asia/Manila`) |
      | `TAX_RATE` | e.g. `0.12`, if you charge tax |
 
    - **Settings → Networking → Generate Domain** gives you an `https://….up.railway.app` address.
@@ -156,6 +156,44 @@ Currency is pesos (₱): the React client formats PHP and the server uses `CURRE
 
 Requires Node.js 22.13 or newer (uses the built-in `node:sqlite`).
 
+## Café Ambiente table service
+
+**Admin → Table service → Manage tables** adds named tables and makes unused tables inactive. **POS → Tables** seats a party, records its guest count and optional alias/VIP/repeat-guest flags, and opens an unpaid tab. Send each new order to the kitchen immediately; extra quantities go into a new submission so they keep their own queue position. Sent lines can be reduced, removed, or given updated preparation notes. Existing names and prices stay on those lines after menu edits.
+
+The kitchen combines table and counter tickets in submission-time order. Staff can start a ticket, mark individual quantities ready, or choose **Order Ready**. Changes and cancellations remain visible until acknowledged. The POS shows readiness without requiring payment first.
+
+Use **Start eating**, **Finish eating**, and **Request bill** to record service milestones. Settle the whole visit in cash, then **Release table**. A cancelled visit also permits release and keeps its cancellation reason. Split bills, merged tables, table transfers, recipe deductions, and reusable customer profiles are not included.
+
+Manual discounts are available on Ambiente table bills and counter sales. Choose a percentage or fixed peso amount, give a reason, and optionally label it PWD or Senior. Percentages apply to the subtotal; tax applies after the discount. Labels do not automatically calculate statutory discounts or VAT exemptions. Receipts retain the subtotal, discount, tax, and cash/change breakdown. Barista keeps its own counter receipts and numbering; RaiRock retains its existing workflow.
+
+**Admin → Overview** is the café KPI dashboard. Today's trading cards combine table, counter, and Barista receipts, with hourly sales, best sellers, unpaid tabs, live table occupancy, kitchen workload, and low-stock alerts. Revenue is not profit: ingredient costs and expenses are not tracked. Live panels refresh every minute and on table updates; offline activity appears after synchronization.
+
+The sidebar separates **Sales & receipts**, **Trends & events**, **Tables & menu**, **Inventory**, and **Staff & access**. Table-service performance has Today, Last 7 days, Last 30 days, and custom ranges up to 366 days; comparisons use the preceding period of equal length. Visits are grouped by arrival date in Asia/Manila; net sales exclude discounts and tax, and cancelled/refunded visits are excluded. Duration averages show complete sample counts. Older backend responses remain usable, with unavailable comparisons labeled; restart the backend after updating to enable the latest report fields. Screen errors show a recovery message instead of a blank page.
+
+### Offline work and conflict review
+
+Use the production build (`npm run build`, then `npm start`) for offline reloads. Open each screen online once on HTTPS (or localhost) so its app files, session, menu, and table snapshot are cached. Every POS can then seat guests, send orders, record milestones, and collect cash offline. The kitchen can mark cached tickets ready offline too. IndexedDB retains queued operations, drafts, and provisional bills across reloads. **Unsynced actions** shows their original contents and recorded cash. Do not clear browser site data while operations are waiting.
+
+Disconnected devices cannot deliver orders to another kitchen device: tell the kitchen orders and changes directly. The app synchronizes automatically on reconnect, with a **Sync now** button for manual retries. Final receipt numbers appear after server acceptance. Retrying an interrupted payment response does not create another sale.
+
+Competing seating, edits, or payments are kept for **Admin → Table service → Offline conflicts**. Review the device record beside the current server record, assign a competing party to an available table when needed, then apply or dismiss the action. Resolve seating before its dependent order/events/payment. Retried menu submissions use current menu details; payment retries use the current bill and retain recorded cash. Record any actual cash collection/refund as a signed cash correction and explain it in the resolution note. Dismissing an operation preserves it and its resolution in history. An unaffordable payment cannot be forced through: account for its cash and enter a corrected payment.
+
+### Undo
+
+Order drafts and party forms have draft undo; existing forms also offer field undo. **Saved actions and Undo** lists reversible table, kitchen, stock, menu, and counter actions. A recent counter/stock action also exposes **Undo saved action**. Saved undo requires a connection, checks the actor's permissions and later changes, and writes a compensating audit entry. Stock reversals add inventory ledger entries. Sale/settlement reversals void the retained receipt and state the cash to return. After refunding a table settlement, release the refunded visit and open a new visit if another bill is needed. Authentication and security changes are outside business undo.
+
+### Validation
+
+```bash
+npm test                 # domain/API tests plus existing store/menu/session regressions
+npm run typecheck
+npm run test:browser     # production build plus real tablet/browser offline tests
+```
+
+Browser tests use installed Edge/Chrome on Windows, `PLAYWRIGHT_EXECUTABLE_PATH` when set, or Playwright's Chromium (`npx playwright install chromium`). Tests use temporary databases, never the café's live files. They cover offline reload, a lost payment acknowledgment, offline kitchen readiness, and two offline tablets reconciling separate cash bills. Set `DINING_SCREENSHOT_DIR` to retain review screenshots.
+
+Database changes are additive and applied at startup; existing orders and receipts remain. New authenticated `/api/dining` endpoints provide snapshots, operation sync, service metrics, menu editing, conflict resolution, and compensating undo. Mutable table records carry versions; saved operations require the version they were based on and a unique operation ID. The new table workflow is enabled only for Ambiente.
+
 ## Menu descriptions
 
 On the POS and Barista screens, clicking a sellable card adds one item to the order and shows its description attached immediately below it. Holding for 500 ms shows the description without adding. The slightly darker description overlays the following cards without changing grid row heights; the item card retains its existing color. Click outside or press Escape to dismiss. Keyboard Enter or Space performs the same action as clicking. Unavailable and pending items can be inspected but cannot be added. In Availability mode, tapping changes availability and holding shows the description.
@@ -184,6 +222,19 @@ the corresponding Ambiente codes. `RAIROCK_ADMIN_PASSWORD` optionally overrides
 the shared owner password. Receipt header and footer can also be set with
 `RAIROCK_RECEIPT_HEADER` and `RAIROCK_RECEIPT_FOOTER`.
 
-Printing still uses the device's browser print screen. Automatic printer and cash
-drawer control needs the selected POS device, printer, and drawer models before a
-compatible connection can be built and tested.
+Receipt printing supports the browser print screen, ESC/POS via RawBT, WebUSB,
+and Bluetooth LE. Hardware compatibility depends on the selected printer.
+
+The default cashier workflow uses the floor map: table ? order ? payment ? print.
+More ? Counter sale opens the till without table selection. Unpaid tabs remains
+available separately for the existing unpaid-visit workflow. The owner's Overview
+includes the KPI dashboard; Floor map edits the layout and Tables & menu manages
+unpaid visits. Paid floor-map receipts feed the service metrics and live occupancy.
+Unavailable service timestamps are left blank rather than estimated.
+
+The merged schema stores physical floor tables in floor_tables and document-based
+unpaid tables in dining_tables. Startup preserves either previous table format.
+These are separate workflows; the same party should not be seated in both.
+Recipe stock changes are preserved on sale, receipt edits, voids, and receipt undo.
+
+Validation: npm run typecheck, npm run build, npm test, npm run test:browser.

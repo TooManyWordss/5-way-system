@@ -1,3 +1,5 @@
+import { currentStore } from '../core/config.js';
+import { totals as diningTotals } from '../../dining-domain.js';
 import { TAX_RATE } from '../core/config.js';
 import { receiptLabel, requireRole, SELLERS, stationOf } from '../auth/sessions.js';
 import { dayRange, localDate, money } from '../core/dates.js';
@@ -16,6 +18,7 @@ export const findSellable = {
 // POS or barista bar -> server: ring up a cash sale.
 app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
   const { clientId, items, createdAt, cashTenderedCents } = req.body ?? {};
+  const discount = currentStore() === 'ambiente' ? req.body?.discount ?? null : null;
   const station = stationOf(req, req.body?.station);
   if (typeof clientId !== 'string' || clientId.length === 0 || clientId.length > 100) {
     return res.status(400).json({ error: 'clientId is required' });
@@ -44,9 +47,10 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
     lines.push({ menuItem, qty });
   }
 
-  const subtotal = lines.reduce((sum, l) => sum + l.menuItem.price_cents * l.qty, 0);
-  const tax = Math.round(subtotal * TAX_RATE);
-  const total = subtotal + tax;
+  let bill;
+  try { bill = diningTotals({ discount, submissions: [{ lines: lines.map(l => ({ qty: l.qty, unit_price_cents: l.menuItem.price_cents })) }] }, TAX_RATE); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  const { subtotal_cents: subtotal, tax_cents: tax, total_cents: total } = bill;
   let tendered = null;
   if (cashTenderedCents !== undefined && cashTenderedCents !== null) {
     if (!Number.isInteger(cashTenderedCents) || cashTenderedCents < 0) {
@@ -61,7 +65,7 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
   let table = null, guests = null, customerTag = null, seatedAt = null;
   if (req.body?.table) {
     const { tableId, guests: g, customerTag: tag, seatedAt: seated } = req.body.table;
-    table = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(Number(tableId));
+    table = db.prepare('SELECT * FROM floor_tables WHERE id = ?').get(Number(tableId));
     if (!table) return res.status(400).json({ error: 'That table no longer exists' });
     if (g !== undefined && g !== null && (!Number.isInteger(g) || g < 1 || g > 50)) return res.status(400).json({ error: 'Guests must be 1–50' });
     if (tag && !['vip', 'repeat'].includes(tag)) return res.status(400).json({ error: 'Unknown customer type' });
@@ -74,7 +78,7 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
   }
 
   let orderId, announceStockChanges;
-  db.exec('BEGIN');
+  db.exec('SAVEPOINT order_write');
   try {
     // Cashier receipts run 1001, 1002…; the barista bar has its own series, printed B-0001, B-0002…
     const { next } = db
@@ -85,12 +89,12 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
         .prepare(
           `INSERT INTO orders (client_id, station, receipt_no, created_at, payment_method, subtotal_cents, tax_cents,
              total_cents, kitchen_status, cash_tendered_cents, change_cents, staff_id, staff_name,
-             table_id, table_name, guests, customer_tag, seated_at)
-           VALUES (?, ?, ?, ?, 'cash', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             table_id, table_name, guests, customer_tag, seated_at, discount_cents, discount_json)
+           VALUES (?, ?, ?, ?, 'cash', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(clientId, station, next, rungUpAt, subtotal, tax, total, kitchenStatus, tendered,
           tendered === null ? null : tendered - total, req.staff?.id ?? null, req.staff?.name ?? null,
-          table?.id ?? null, table?.name ?? null, guests, customerTag, seatedAt)
+          table?.id ?? null, table?.name ?? null, guests, customerTag, seatedAt, bill.discount_cents, JSON.stringify(discount))
         .lastInsertRowid
     );
     const insertItem = db.prepare(
@@ -103,9 +107,9 @@ app.post('/api/orders', requireRole(...SELLERS), (req, res) => {
     const sold = new Map();
     for (const { menuItem, qty } of lines) sold.set(menuItem.id, (sold.get(menuItem.id) ?? 0) + qty);
     announceStockChanges = applyRecipes(req, sold, `Receipt #${receiptLabel({ station, receipt_no: next })}`);
-    db.exec('COMMIT');
+    db.exec('RELEASE order_write');
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO order_write; RELEASE order_write');
     throw err;
   }
   announceStockChanges();
@@ -146,7 +150,7 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
   const before = new Map(); // menu item id -> { name, unit_price_cents, sends_to_kitchen, qty }
   for (const i of order.items) {
     const prev = before.get(i.menu_item_id);
-    before.set(i.menu_item_id, { ...i, qty: (prev?.qty ?? 0) + i.qty });
+    before.set(i.menu_item_id, { ...i, qty: (prev?.qty ?? 0) + i.qty, ready_qty: (prev?.ready_qty ?? 0) + i.ready_qty });
   }
 
   const wanted = new Map();
@@ -161,7 +165,7 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
     if (qty > 99) return res.status(400).json({ error: 'Invalid quantity' });
     const prev = before.get(id);
     if (prev) {
-      lines.push({ menu_item_id: id, name: prev.name, unit_price_cents: prev.unit_price_cents, sends_to_kitchen: prev.sends_to_kitchen, qty });
+      lines.push({ id: prev.id, ready_qty: Math.min(prev.ready_qty, qty), note: prev.note, menu_item_id: id, name: prev.name, unit_price_cents: prev.unit_price_cents, sends_to_kitchen: prev.sends_to_kitchen, qty });
       continue;
     }
     const menuItem = findSellable.get(id);
@@ -177,11 +181,14 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
     const name = before.get(id)?.name ?? lines.find((l) => l.menu_item_id === id).name;
     if (diff) changes.push(`${diff > 0 ? '+' : '−'}${Math.abs(diff)} ${name}`);
   }
+  const discount = currentStore() === 'ambiente' && Object.hasOwn(req.body, 'discount') ? req.body.discount : JSON.parse(order.discount_json ?? 'null');
+  if (JSON.stringify(discount) !== JSON.stringify(JSON.parse(order.discount_json ?? 'null'))) changes.push('Discount updated');
   if (changes.length === 0) return res.status(400).json({ error: 'Nothing was changed' });
 
-  const subtotal = lines.reduce((sum, l) => sum + l.unit_price_cents * l.qty, 0);
-  const tax = Math.round(subtotal * TAX_RATE);
-  const total = subtotal + tax;
+  let bill;
+  try { bill = diningTotals({ discount, submissions: [{ lines }] }, TAX_RATE); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  const { subtotal_cents: subtotal, tax_cents: tax, total_cents: total } = bill;
 
   // Keep the kitchen in step: new kitchen items reopen a finished ticket,
   // and a ticket with no kitchen items left disappears.
@@ -211,28 +218,29 @@ app.patch('/api/orders/:id', requireRole(...SELLERS), (req, res) => {
   for (const id of new Set([...before.keys(), ...wanted.keys()])) sold.set(id, (wanted.get(id) ?? 0) - (before.get(id)?.qty ?? 0));
   let announceStockChanges;
 
-  db.exec('BEGIN');
+  db.exec('SAVEPOINT order_write');
   try {
-    db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
-    const insertItem = db.prepare(
-      `INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, kitchen_ready_at, kitchen_started_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    for (const l of lines) insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, l.kitchen_ready_at, l.kitchen_started_at);
+    const retained = new Set(lines.filter(l => l.id).map(l => l.id));
+    for (const old of order.items) if (!retained.has(old.id)) db.prepare('DELETE FROM order_items WHERE id = ?').run(old.id);
+    const insertItem = db.prepare('INSERT INTO order_items (order_id, menu_item_id, name, unit_price_cents, qty, sends_to_kitchen, ready_qty, note, kitchen_ready_at, kitchen_started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const l of lines) {
+      if (l.id) db.prepare('UPDATE order_items SET qty = ?, ready_qty = ?, note = ?, kitchen_ready_at = ?, kitchen_started_at = ? WHERE id = ?').run(l.qty, l.ready_qty, l.note ?? '', l.kitchen_ready_at, l.kitchen_started_at, l.id);
+      else insertItem.run(order.id, l.menu_item_id, l.name, l.unit_price_cents, l.qty, l.sends_to_kitchen, 0, '', l.kitchen_ready_at, l.kitchen_started_at);
+    }
     const now = new Date().toISOString();
     db.prepare(
-      `UPDATE orders SET subtotal_cents = ?, tax_cents = ?, total_cents = ?, kitchen_status = ?,
+      `UPDATE orders SET subtotal_cents = ?, tax_cents = ?, total_cents = ?, discount_cents = ?, discount_json = ?, kitchen_status = ?,
          kitchen_started_at = CASE WHEN ? THEN NULL ELSE kitchen_started_at END,
          kitchen_ready_at   = CASE WHEN ? THEN NULL WHEN ? THEN ? ELSE kitchen_ready_at END,
          edited_at = ?, edit_count = edit_count + 1
        WHERE id = ?`
-    ).run(subtotal, tax, total, kitchenStatus, reopened ? 1 : 0, reopened ? 1 : 0, finished ? 1 : 0, now, now, order.id);
+    ).run(subtotal, tax, total, bill.discount_cents, JSON.stringify(discount), kitchenStatus, reopened ? 1 : 0, reopened ? 1 : 0, finished ? 1 : 0, now, now, order.id);
     logActivity(req, 'order.edited',
       `Edited receipt #${order.receipt_label}: ${changes.join(', ')} (${money(order.total_cents)} → ${money(total)})`, order.id);
     announceStockChanges = applyRecipes(req, sold, `Receipt #${order.receipt_label} edited`);
-    db.exec('COMMIT');
+    db.exec('RELEASE order_write');
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO order_write; RELEASE order_write');
     throw err;
   }
   announceStockChanges();
@@ -257,16 +265,16 @@ app.post('/api/orders/:id/void', requireRole(...SELLERS), (req, res) => {
   const returned = new Map();
   for (const i of order.items) returned.set(i.menu_item_id, (returned.get(i.menu_item_id) ?? 0) - i.qty);
   let announceStockChanges;
-  db.exec('BEGIN');
+  db.exec('SAVEPOINT order_write');
   try {
     db.prepare(
       `UPDATE orders SET status = 'voided', void_reason = ?, voided_at = ?, voided_by = ?, kitchen_status = ? WHERE id = ?`
     ).run(reason, new Date().toISOString(), req.role, kitchenStatus, order.id);
     logActivity(req, 'order.voided', `Voided receipt #${order.receipt_label} (${money(order.total_cents)}): ${reason}`, order.id);
     announceStockChanges = applyRecipes(req, returned, `Receipt #${order.receipt_label} voided`);
-    db.exec('COMMIT');
+    db.exec('RELEASE order_write');
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO order_write; RELEASE order_write');
     throw err;
   }
   announceStockChanges();

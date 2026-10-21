@@ -12,6 +12,7 @@ import { databases } from './server/core/db.js';
 import './server/core/init.js';
 import { app, httpServer, io } from './server/core/http.js';
 import './server/auth/routes.js';
+import './server/dining.js';
 import './server/passkeys/routes.js';
 import './server/staff/routes.js';
 import './server/menu/routes.js';

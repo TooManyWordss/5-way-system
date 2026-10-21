@@ -87,7 +87,7 @@ export function eventsBetween(from, to, { includeHidden = false } = {}) {
   for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
     for (const e of builtInEvents(y)) list.push({ ...e, hidden: hidden.has(e.key) });
   }
-  for (const e of db.prepare('SELECT * FROM events WHERE start_date <= ? AND end_date >= ?').all(to, from)) {
+  for (const e of db.prepare('SELECT * FROM events WHERE active = 1 AND start_date <= ? AND end_date >= ?').all(to, from)) {
     list.push({ key: `custom:${e.name.toLowerCase()}`, name: e.name, kind: e.kind, start: e.start_date, end: e.end_date, note: e.note, custom_id: e.id, hidden: false });
   }
   return list.filter((e) => e.start <= to && e.end >= from && (includeHidden || !e.hidden));
@@ -142,7 +142,7 @@ export function eventPerformance(periodStart, periodEnd) {
   const lastYearOf = (e) => {
     const y = Number(e.start.slice(0, 4)) - 1;
     if (e.custom_id) {
-      return db.prepare('SELECT start_date AS start, end_date AS end FROM events WHERE lower(name) = lower(?) AND start_date LIKE ?')
+      return db.prepare('SELECT start_date AS start, end_date AS end FROM events WHERE active = 1 AND lower(name) = lower(?) AND start_date LIKE ?')
         .get(e.name, `${y}-%`) ?? null;
     }
     return builtInEvents(y).find((p) => p.key === e.key) ?? null;
@@ -343,9 +343,9 @@ app.post('/api/admin/events', (req, res) => {
 });
 
 app.delete('/api/admin/events/:id', (req, res) => {
-  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(Number(req.params.id));
+  const event = db.prepare('SELECT * FROM events WHERE id = ? AND active = 1').get(Number(req.params.id));
   if (!event) return res.status(404).json({ error: 'Event not found' });
-  db.prepare('DELETE FROM events WHERE id = ?').run(event.id);
+  db.prepare('UPDATE events SET active = 0 WHERE id = ?').run(event.id);
   logActivity(req, 'event.removed', `Removed event ${event.name}`);
   res.json({ ok: true });
 });

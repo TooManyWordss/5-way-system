@@ -20,6 +20,12 @@ export const db = new Proxy({}, { get: (_target, property) => {
   return typeof value === 'function' ? value.bind(database) : value;
 } });
 export function initSchema() {
+// A database created by the floor-plan branch used this name before the merge.
+const oldTables = db.prepare('PRAGMA table_info(dining_tables)').all();
+if (oldTables.some(c => c.name === 'seats') && !oldTables.some(c => c.name === 'document')) {
+  db.exec('ALTER TABLE dining_tables RENAME TO floor_tables');
+}
+
 db.exec(`
   PRAGMA foreign_keys = ON;
   PRAGMA busy_timeout = 5000; -- wait for a moment instead of failing if the file is briefly locked
@@ -235,7 +241,7 @@ addMissingColumns('order_items', { kitchen_ready_at: 'TEXT', kitchen_started_at:
 
 db.exec(`
   -- The dining room. x, y, w, h place each table on the floor map (1280 × 720 drawing).
-  CREATE TABLE IF NOT EXISTS dining_tables (
+  CREATE TABLE IF NOT EXISTS floor_tables (
     id         INTEGER PRIMARY KEY,
     name       TEXT    NOT NULL,
     seats      INTEGER NOT NULL DEFAULT 4,

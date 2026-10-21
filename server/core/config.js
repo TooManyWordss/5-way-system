@@ -1,3 +1,4 @@
+process.env.TZ ??= 'Asia/Manila';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';

@@ -13,6 +13,7 @@ export function usePosData(station: 'cashier' | 'barista') {
   const loadTables = useCallback(async () => { const data = await api<DiningTable[]>('/api/tables'); setTables(data); localStorage.setItem(storageKey('tables'), JSON.stringify(data)); }, []);
   const onEvent = useCallback((event: string) => { if (event === 'menu.updated') void loadMenu(); if (event.startsWith('order.')) void loadToday(); if (event === 'tables.updated') void loadTables().catch(() => {}); }, [loadMenu, loadToday, loadTables]);
   const state = useLive(onEvent);
+  useEffect(()=>{const refresh=()=>{void loadMenu().catch(()=>{});void loadToday().catch(()=>{});};window.addEventListener('dining.business',refresh);return()=>window.removeEventListener('dining.business',refresh);},[loadMenu,loadToday]);
   useEffect(() => { void loadMenu().catch(() => { const saved = localStorage.getItem(storageKey(`menu.${station}`)); if (saved) setMenuData(JSON.parse(saved)); }); void loadToday().catch(() => {}); void loadTables().catch(() => {}); }, [loadMenu, loadToday, loadTables, station]);
   return { menuData, today, loadMenu, loadToday, tables, loadTables, state };
 }

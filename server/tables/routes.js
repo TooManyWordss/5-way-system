@@ -27,7 +27,7 @@ export function diningTables() {
     party.receipts.push({ id: o.id, label: receiptLabel(o), total_cents: o.total_cents, created_at: o.created_at });
     open.set(o.table_id, party);
   }
-  return db.prepare('SELECT * FROM dining_tables WHERE active = 1 ORDER BY id').all()
+  return db.prepare('SELECT * FROM floor_tables WHERE active = 1 ORDER BY id').all()
     .map((t) => ({ ...t, party: open.get(t.id) ?? null }));
 }
 
@@ -37,7 +37,7 @@ app.get('/api/tables', requireRole(...SELLERS, 'kitchen'), (req, res) => res.jso
 
 // Cashier or barista: the party paid up and left. The table is free and its receipts get the exit time.
 app.post('/api/tables/:id/bill-out', requireRole(...SELLERS), (req, res) => {
-  const table = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(Number(req.params.id));
+  const table = db.prepare('SELECT * FROM floor_tables WHERE id = ?').get(Number(req.params.id));
   if (!table) return res.status(404).json({ error: 'Table not found' });
   const open = openTableOrders(table.id);
   if (!open.length) return res.status(409).json({ error: `${table.name} is already free` });
@@ -61,7 +61,7 @@ app.post('/api/tables/:id/bill-out', requireRole(...SELLERS), (req, res) => {
 export function tableProblem({ name, seats }, ignoreId = 0) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 30) return 'Table name must be 1–30 characters';
   if (!Number.isInteger(seats) || seats < 1 || seats > 50) return 'Seats must be 1–50';
-  if (db.prepare('SELECT 1 FROM dining_tables WHERE lower(name) = lower(?) AND id != ? AND active = 1').get(name.trim(), ignoreId)) {
+  if (db.prepare('SELECT 1 FROM floor_tables WHERE lower(name) = lower(?) AND id != ? AND active = 1').get(name.trim(), ignoreId)) {
     return `There is already a table called "${name.trim()}"`;
   }
   return null;
@@ -75,16 +75,16 @@ app.post('/api/admin/tables', (req, res) => {
   const name = req.body?.name, seats = Number(req.body?.seats);
   const problem = tableProblem({ name, seats });
   if (problem) return res.status(400).json({ error: problem });
-  const id = Number(db.prepare('INSERT INTO dining_tables (name, seats, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+  const id = Number(db.prepare('INSERT INTO floor_tables (name, seats, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(name.trim(), seats, 30, 640, tableSize(seats).w, tableSize(seats).h, new Date().toISOString()).lastInsertRowid);
   logActivity(req, 'table.added', `Added ${name.trim()} (${seats} seats)`);
   announceTables();
-  res.status(201).json(db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(id));
+  res.status(201).json(db.prepare('SELECT * FROM floor_tables WHERE id = ?').get(id));
 });
 
 // Owner: rename, change seats, or move a table on the map.
 app.patch('/api/admin/tables/:id', (req, res) => {
-  const table = db.prepare('SELECT * FROM dining_tables WHERE id = ? AND active = 1').get(Number(req.params.id));
+  const table = db.prepare('SELECT * FROM floor_tables WHERE id = ? AND active = 1').get(Number(req.params.id));
   if (!table) return res.status(404).json({ error: 'Table not found' });
   const next = { ...table, ...req.body, seats: req.body?.seats === undefined ? table.seats : Number(req.body.seats) };
   const problem = tableProblem(next, table.id);
@@ -92,21 +92,21 @@ app.patch('/api/admin/tables/:id', (req, res) => {
   if (!onMap(next.x, 1280) || !onMap(next.y, 720)) return res.status(400).json({ error: 'Table is off the map' });
   // Going from a 2-seater to a bigger table (or back) changes its shape.
   const shape = (next.seats <= 2) === (table.seats <= 2) ? { ...next, w: table.w, h: table.h } : { ...next, ...resized({ ...table, x: next.x, y: next.y }, next.seats) };
-  db.prepare('UPDATE dining_tables SET name = ?, seats = ?, x = ?, y = ?, w = ?, h = ? WHERE id = ?')
+  db.prepare('UPDATE floor_tables SET name = ?, seats = ?, x = ?, y = ?, w = ?, h = ? WHERE id = ?')
     .run(next.name.trim(), next.seats, Math.round(shape.x), Math.round(shape.y), shape.w, shape.h, table.id);
   if (next.name.trim() !== table.name || next.seats !== table.seats) {
     logActivity(req, 'table.edited', `${table.name} (${table.seats} seats) → ${next.name.trim()} (${next.seats} seats)`);
   }
   announceTables();
-  res.json(db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(table.id));
+  res.json(db.prepare('SELECT * FROM floor_tables WHERE id = ?').get(table.id));
 });
 
 // Owner: remove a table. Past receipts keep the table's name.
 app.delete('/api/admin/tables/:id', (req, res) => {
-  const table = db.prepare('SELECT * FROM dining_tables WHERE id = ? AND active = 1').get(Number(req.params.id));
+  const table = db.prepare('SELECT * FROM floor_tables WHERE id = ? AND active = 1').get(Number(req.params.id));
   if (!table) return res.status(404).json({ error: 'Table not found' });
   if (openTableOrders(table.id).length) return res.status(409).json({ error: `${table.name} has guests. Bill them out first.` });
-  db.prepare('UPDATE dining_tables SET active = 0 WHERE id = ?').run(table.id);
+  db.prepare('UPDATE floor_tables SET active = 0 WHERE id = ?').run(table.id);
   logActivity(req, 'table.removed', `Removed ${table.name}`);
   announceTables();
   res.json({ ok: true });
