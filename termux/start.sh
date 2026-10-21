@@ -1,6 +1,12 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Runs the café server on this tablet, opens the POS, and restarts the server if it ever stops.
 cd "$(dirname "$0")/.."
+# Half-updated Termux libraries stop node with "cannot link executable"; restarting would only repeat it.
+if ! node -v > /dev/null 2>&1; then
+  echo "Node can't start on this tablet. Connect to the internet and run:  pkg upgrade -y"
+  echo "Then type: cafe"
+  exit 1
+fi
 # Keeps Android from putting Termux to sleep while the café is open.
 termux-wake-lock 2>/dev/null || true
 

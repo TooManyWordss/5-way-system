@@ -12,7 +12,8 @@ main() {
   trap 'rm -f "$JAR"' EXIT
 
   echo "== 1/5 Installing tools (a few minutes the first time) =="
-  pkg update -y < /dev/null
+  # A full upgrade, not just a refresh: half-updated Termux libraries stop node with "cannot link executable".
+  pkg upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold < /dev/null
   pkg install -y nodejs-lts tar < /dev/null || pkg install -y nodejs tar < /dev/null
   if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)'; then
     pkg uninstall -y nodejs-lts < /dev/null || true
