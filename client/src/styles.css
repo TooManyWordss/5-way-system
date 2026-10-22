@@ -293,3 +293,8 @@ button,a,.fm-table,.chip,.view-tab{-webkit-tap-highlight-color:transparent;touch
 .link.reprint{justify-self:start;margin-left:0;text-decoration:underline;text-underline-offset:3px}
 /* On a tablet the floor map is the table picker; the name list is only a fallback for phone-sized screens. */
 @media (min-width:700px){.seats-view .table-chips{display:none}}
+
+/* The L-shaped couch around its table follows the table's free / taken / chosen colours. */
+.fm-couch{fill:var(--surface-2);stroke:var(--muted);stroke-width:2}
+.fm-table.busy .fm-couch{stroke:var(--warn)}
+.fm-table.selected .fm-couch{stroke:var(--accent)}
