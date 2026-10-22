@@ -285,3 +285,11 @@ button,a,.fm-table,.chip,.view-tab{-webkit-tap-highlight-color:transparent;touch
 .print-done.skipped{background:var(--surface-2);color:var(--text)}
 
 .admin-nav a{text-decoration:none}
+
+/* Discount sits with the total; reprint is a quiet link under it. */
+.cart-discount{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:6px;border-bottom:1px dashed var(--border)}
+.cart-discount>span{margin-right:auto}
+.cart-discount .hint{margin:0}
+.link.reprint{justify-self:start;margin-left:0;text-decoration:underline;text-underline-offset:3px}
+/* On a tablet the floor map is the table picker; the name list is only a fallback for phone-sized screens. */
+@media (min-width:700px){.seats-view .table-chips{display:none}}

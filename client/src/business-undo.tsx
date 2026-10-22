@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { diningRequest } from './dining-store';
 
+const fieldScreens = ['/admin', '/inventory'];
+
 // Complements domain-specific draft undo with field undo on the existing forms.
 export default function BusinessUndo() {
   const [saved, setSaved] = useState<string | null>(null), [message, setMessage] = useState(''), [count, setCount] = useState(0), [busy, setBusy] = useState(false);
@@ -10,7 +12,8 @@ export default function BusinessUndo() {
     const value = (el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) => el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value;
     const eligible = (e: Event) => {
       const el = e.target;
-      return (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) && !(el instanceof HTMLInputElement && ['password', 'hidden', 'file'].includes(el.type)) && !el.closest('.login-page,.security') ? el : null;
+      // Field undo is for the owner's and stock-keeper's forms; the tills have their own Undo buttons.
+      return fieldScreens.includes(location.pathname) && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) && !(el instanceof HTMLInputElement && ['password', 'hidden', 'file', 'search'].includes(el.type)) && !el.closest('.login-page,.security') ? el : null;
     };
     const focus = (e: Event) => { const el = eligible(e); if (el) values.set(el, value(el)); };
     const input = (e: Event) => {
@@ -38,6 +41,9 @@ export default function BusinessUndo() {
     window.addEventListener('dining.undo-field', undo); window.addEventListener('dining.saved', mutation);
     return () => { document.removeEventListener('focusin', focus); document.removeEventListener('input', input, true); document.removeEventListener('change', input, true); document.removeEventListener('submit', clear); window.removeEventListener('dining.undo-field', undo); window.removeEventListener('dining.saved', mutation); };
   }, []);
+  // The undo offer steps aside after a while so it never sits over the till's own buttons.
+  useEffect(() => { if (!saved) return; const id = window.setTimeout(() => setSaved(null), 30000); return () => clearTimeout(id); }, [saved]);
+  useEffect(() => { if (!message) return; const id = window.setTimeout(() => setMessage(''), 12000); return () => clearTimeout(id); }, [message]);
   if (location.pathname.startsWith('/rairock') || location.pathname.includes('login') || !['/pos', '/barista', '/inventory', '/kitchen', '/admin'].includes(location.pathname)) return null;
   const undoSaved = async () => {
     if (!saved) return;
