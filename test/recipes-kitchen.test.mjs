@@ -5,6 +5,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { io as connect } from 'socket.io-client';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -102,6 +103,14 @@ test('sales take recipe stock out, edits and voids adjust it, and the kitchen ma
       assert.equal(done.body.kitchen_status, 'ready');
       assert.ok(!(await call('/api/kitchen/tickets', kitchen)).body.some((t) => t.id === order.id));
     }
+
+    // The till can tell whether a kitchen screen is open, to know when to print a paper kitchen slip.
+    assert.deepEqual((await call('/api/pos/kitchen-screens', pos)).body, { screens: 0 });
+    assert.equal((await call('/api/pos/kitchen-screens', kitchen)).status, 401);
+    const screen = connect(base, { extraHeaders: { cookie: kitchen }, auth: { store: 'ambiente' }, transports: ['websocket'] });
+    await new Promise((resolve, reject) => { screen.on('connect', resolve); screen.on('connect_error', reject); });
+    assert.deepEqual((await call('/api/pos/kitchen-screens', pos)).body, { screens: 1 });
+    screen.close();
 
     // Tables: the sketch's layout is there, a party is seated, adds a second order, then bills out.
     const tables = (await call('/api/tables', pos)).body;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { encodeReceipt } from '../client/src/printing/escpos.ts';
+import { encodeKitchenSlip, encodeReceipt, joinPrints } from '../client/src/printing/escpos.ts';
 
 const settings = { name: 'Café Ambiente', header: ['Iligan City'], footer: ['Thank you!'] };
 const text = (bytes) => Buffer.from(bytes).toString('latin1');
@@ -32,4 +32,21 @@ test('the barista receipt prints the order number large and a cash sale can open
   assert.ok(out.includes('\x1d\x21\x11Order B-0007'), 'double width and height');
   assert.ok(out.includes('Coffee Bar'));
   assert.deepEqual([...bytes.slice(-5)], [0x1b, 0x70, 0x00, 0x19, 0xfa]);
+});
+
+test('the kitchen slip lists what to cook without prices and prints after the receipt as one job', () => {
+  const order = { label: '1002', created_at: '2026-10-19T04:00:00Z', table_name: 'Couch', guests: 6,
+    items: [{ name: 'Sweet Corn', qty: 2, unit_price_cents: 9000 }, { name: 'Carbonara with extra parmesan and bacon bits', qty: 1, unit_price_cents: 26000 }],
+    total_cents: 44000, cash_tendered_cents: 50000, change_cents: 6000 };
+  const slip = encodeKitchenSlip(order, { columns: 32, cut: false, drawer: false });
+  const out = text(slip);
+  assert.ok(out.includes('KITCHEN') && out.includes('Couch') && out.includes('6 guests') && out.includes('Receipt #1002'));
+  assert.ok(out.includes('2 x Sweet Corn') && out.includes('1 x Carbonara'));
+  assert.ok(!/P\d/.test(out), 'no prices on the kitchen slip');
+  const lines = out.replace(/\x1b@|\x1b[aE][\s\S]|\x1d![\s\S]/g, '').split('\n');
+  for (const line of lines) assert.ok(line.length <= 32, `too long: "${line}"`);
+  const receipt = encodeReceipt(order, settings, { columns: 32, cut: true, drawer: false });
+  const both = joinPrints(receipt, slip);
+  assert.equal(both.length, receipt.length + slip.length);
+  assert.ok(text(both).indexOf('Cash') < text(both).indexOf('KITCHEN'), 'receipt first, then the kitchen slip');
 });

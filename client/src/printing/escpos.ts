@@ -83,6 +83,31 @@ export function encodeReceipt(r: ReceiptData, settings: ReceiptSettings, options
   return p.done();
 }
 
+// The kitchen's copy when no kitchen screen is connected: what to cook, large, with no prices.
+// It prints after the customer's receipt on the same printer, ready to tear off.
+export function encodeKitchenSlip(r: ReceiptData, options: PrintOptions) {
+  const p = new Receipt(options.columns);
+  p.align('center').bold(true).size(true, true).line('KITCHEN').size(false, true).line(r.table_name ?? 'Takeout').size(false, false).bold(false);
+  if (r.guests) p.line(`${r.guests} guest${r.guests === 1 ? '' : 's'}`);
+  p.line([r.label ? `Receipt #${r.label}` : '', clock(r.created_at)].filter(Boolean).join(' - '));
+  if (r.offline) p.line('Saved offline');
+  if (r.reprint) p.line('REPRINT');
+  p.align('left').rule().bold(true).size(false, true);
+  for (const i of r.items ?? []) p.row(`${i.qty} x ${i.name ?? ''}`, '');
+  p.size(false, false).bold(false).rule();
+  p.raw(LF, LF, LF, LF);
+  if (options.cut) p.raw(GS, 0x56, 0x42, 0x00);
+  return p.done();
+}
+
+// Several printouts sent to the printer as one job.
+export function joinPrints(...parts: Uint8Array[]) {
+  const out = new Uint8Array(parts.reduce((n, part) => n + part.length, 0));
+  let at = 0;
+  for (const part of parts) { out.set(part, at); at += part.length; }
+  return out;
+}
+
 // ---------- Sending ----------
 
 function toBase64(bytes: Uint8Array) {

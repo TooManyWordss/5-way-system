@@ -298,3 +298,5 @@ button,a,.fm-table,.chip,.view-tab{-webkit-tap-highlight-color:transparent;touch
 .fm-couch{fill:var(--surface-2);stroke:var(--muted);stroke-width:2}
 .fm-table.busy .fm-couch{stroke:var(--warn)}
 .fm-table.selected .fm-couch{stroke:var(--accent)}
+/* Kitchen slip on the device's own print screen: large, no prices, on its own page after the receipt. */
+@media print{.r-slip-table{font-size:15pt;font-weight:800}.r-slip-line{font-size:15pt;font-weight:800;margin:4px 0}.print-receipt>.r-slip:not(:first-child){break-before:page;margin-top:10mm}}
