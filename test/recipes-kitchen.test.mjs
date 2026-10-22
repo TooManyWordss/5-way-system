@@ -105,7 +105,7 @@ test('sales take recipe stock out, edits and voids adjust it, and the kitchen ma
 
     // Tables: the sketch's layout is there, a party is seated, adds a second order, then bills out.
     const tables = (await call('/api/tables', pos)).body;
-    assert.equal(tables.length, 19);
+    assert.equal(tables.length, 21);
     const t5 = tables.find((t) => t.name === 'Table 5');
     const seatedAt = new Date(Date.now() - 10 * 60000).toISOString();
     const dineIn = await call('/api/orders', pos, 'POST', { clientId: 'table-1', items: [{ menuItemId: other.id, qty: 1 }],

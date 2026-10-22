@@ -5,6 +5,7 @@ import { getSetting, setSetting } from '../core/settings.js';
 // Café Ambiente's floor, from the owner's sketch. The owner can rename, add, remove and move tables.
 export const AMBIENTE_TABLES = [
   ['Balcony 1', 4, 138, 160, 90, 50], ['Balcony 2', 4, 148, 310, 90, 50],
+  ['Balcony 3', 4, 138, 460, 90, 50], ['Balcony 4', 4, 148, 610, 90, 50],
   ['Table 1', 4, 313, 175, 50, 90], ['Table 2', 2, 358, 103, 44, 44], ['Table 3', 2, 480, 106, 44, 44],
   ['Couch', 3, 738, 140, 90, 50], ['Table 4', 2, 953, 81, 44, 44], ['Table 5', 2, 958, 247, 44, 44],
   ['Table 6', 2, 964, 384, 44, 44], ['Table 7', 2, 964, 465, 44, 44],
@@ -39,5 +40,15 @@ export function seedTables() {
       update.run(x, y, w, h, t.id);
     }
     setSetting('tables_uniform', '1');
+  }
+  // Floors seeded before the balcony grew to four tables get the two new ones, unless the owner
+  // already has tables by those names.
+  if (currentStore() === 'ambiente' && getSetting('tables_balcony_4', '') !== '1') {
+    const insert = db.prepare('INSERT INTO floor_tables (name, seats, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const now = new Date().toISOString();
+    for (const t of AMBIENTE_TABLES.filter(([name]) => /^Balcony [34]$/.test(name))) {
+      if (!db.prepare('SELECT 1 FROM floor_tables WHERE lower(name) = lower(?) AND active = 1').get(t[0])) insert.run(...t, now);
+    }
+    setSetting('tables_balcony_4', '1');
   }
 }

@@ -47,3 +47,22 @@ for (const format of ['floor', 'documents']) test(`existing ${format} table data
     assert.equal((await server.request('/api/dining/state', owner)).status, 200);
   } finally { await server.close(); }
 });
+
+test('a floor seeded before the balcony grew gets Balcony 3 and 4 once, beside the owner\'s own tables', async () => {
+  const server = await launch({ prepareData(dir) {
+    const db = new DatabaseSync(path.join(dir, 'data.db'));
+    db.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO settings VALUES ('tables_seeded', '1'), ('tables_uniform', '1');
+      CREATE TABLE floor_tables (id INTEGER PRIMARY KEY, name TEXT NOT NULL, seats INTEGER NOT NULL DEFAULT 4, x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+      INSERT INTO floor_tables (name, seats, x, y, w, h, created_at) VALUES
+        ('Balcony 1', 4, 138, 160, 90, 50, '2026-10-18T00:00:00Z'), ('Balcony 2', 4, 300, 300, 90, 50, '2026-10-18T00:00:00Z'),
+        ('balcony 4', 2, 500, 500, 44, 44, '2026-10-18T00:00:00Z');`);
+    db.close();
+  } });
+  try {
+    const tables = (await server.request('/api/tables', await server.login('admin'))).data;
+    const balcony = tables.filter(t => /^balcony/i.test(t.name)).map(t => [t.name, t.seats, t.x, t.y]);
+    // Balcony 3 is added; the owner's moved Balcony 2 and their own "balcony 4" are left alone.
+    assert.deepEqual(balcony, [['Balcony 1', 4, 138, 160], ['Balcony 2', 4, 300, 300], ['balcony 4', 2, 500, 500], ['Balcony 3', 4, 138, 460]]);
+  } finally { await server.close(); }
+});

@@ -13,7 +13,7 @@ export function FloorMap({ tables, selectedId, onPick, onMove }: { tables: Dinin
     onPointerMove={e => { if (!drag) return; const p = point(e); setDrag({ ...drag, x: Math.max(0, Math.min(1240, p.x - drag.dx)), y: Math.max(70, Math.min(690, p.y - drag.dy)), moved: true }); }}
     onPointerUp={() => { if (!drag) return; const t = tables.find(x => x.id === drag.id); if (t && drag.moved) onMove?.(t, drag.x, drag.y); else if (t) onPick(t); setDrag(null); }}>
     {STORE === 'ambiente' && <g className="fm-decor" aria-hidden="true">
-      <rect x="100" y="95" width="165" height="355" rx="6" /><text x="182" y="122">Balcony</text>
+      <rect x="100" y="95" width="165" height="605" rx="6" /><text x="182" y="122">Balcony</text>
       <path className="fm-cashier" d="M300 345 H500 L505 310 H670 V705 H300 Z" /><text x="545" y="380">Cashier</text>
       <line className="fm-entrance" x1="540" y1="80" x2="700" y2="80" /><text x="620" y="104">Entrance</text>
       <rect x="720" y="95" width="160" height="24" rx="12" /><rect x="895" y="90" width="22" height="95" rx="4" />
