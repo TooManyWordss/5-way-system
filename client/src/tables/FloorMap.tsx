@@ -19,7 +19,7 @@ export function FloorMap({ tables, selectedId, onPick, onMove }: { tables: Dinin
     <rect className="fm-room" x="14" y="76" width="1252" height="628" rx="18" />
     <rect x="14" y="76" width="1252" height="628" rx="18" fill={`url(#${floor})`} />
     {STORE === 'ambiente' && <g className="fm-decor" aria-hidden="true">
-      <rect className="fm-balcony" x="100" y="95" width="165" height="605" rx="14" /><text className="fm-area-label" x="182" y="124">BALCONY</text>
+      <rect className="fm-balcony" x="100" y="84" width="166" height="508" rx="14" /><text className="fm-area-label" x="183" y="105">BALCONY</text>
       <path className="fm-cashier" d="M300 345 H500 L505 310 H670 V705 H300 Z" /><text className="fm-area-label" x="485" y="520">CASHIER</text>
       <line className="fm-entrance" x1="550" y1="78" x2="690" y2="78" /><text className="fm-area-label" x="620" y="106">ENTRANCE</text>
     </g>}
