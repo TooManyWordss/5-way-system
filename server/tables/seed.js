@@ -2,18 +2,26 @@ import { currentStore } from '../core/config.js';
 import { db } from '../core/db.js';
 import { getSetting, setSetting } from '../core/settings.js';
 
-// Café Ambiente's floor, from the owner's sketch. The owner can rename, add, remove and move tables.
+// Café Ambiente's floor, from the owner's sketch, lined up in columns and rows: the balcony column,
+// Tables 2 over 1, the 4–7 and 8–12 columns, and the 13–16 block. The owner can rename, add, remove and move tables.
 export const AMBIENTE_TABLES = [
-  ['Balcony 1', 4, 138, 160, 90, 50], ['Balcony 2', 4, 148, 310, 90, 50],
-  ['Balcony 3', 4, 138, 460, 90, 50], ['Balcony 4', 4, 148, 610, 90, 50],
-  ['Table 1', 4, 313, 175, 50, 90], ['Table 2', 2, 358, 103, 44, 44], ['Table 3', 2, 480, 106, 44, 44],
-  ['Couch', 6, 715, 137, 136, 56], ['Table 4', 2, 953, 81, 44, 44], ['Table 5', 2, 958, 247, 44, 44],
-  ['Table 6', 2, 964, 384, 44, 44], ['Table 7', 2, 964, 465, 44, 44],
-  ['Table 8', 4, 1118, 95, 50, 90], ['Table 9', 4, 1128, 215, 50, 90], ['Table 10', 4, 1105, 355, 90, 50],
-  ['Table 11', 4, 1095, 465, 90, 50], ['Table 12', 4, 1108, 585, 90, 50],
-  ['Table 13', 4, 690, 565, 90, 50], ['Table 14', 4, 680, 440, 90, 50],
-  ['Table 15', 4, 818, 560, 90, 50], ['Table 16', 4, 823, 430, 90, 50],
+  ['Balcony 1', 4, 138, 160, 90, 50], ['Balcony 2', 4, 138, 310, 90, 50],
+  ['Balcony 3', 4, 138, 460, 90, 50], ['Balcony 4', 4, 138, 610, 90, 50],
+  ['Table 1', 4, 313, 175, 50, 90], ['Table 2', 2, 316, 103, 44, 44], ['Table 3', 2, 480, 103, 44, 44],
+  ['Couch', 6, 715, 137, 136, 56], ['Table 4', 2, 960, 103, 44, 44], ['Table 5', 2, 960, 223, 44, 44],
+  ['Table 6', 2, 960, 343, 44, 44], ['Table 7', 2, 960, 463, 44, 44],
+  ['Table 8', 4, 1125, 95, 50, 90], ['Table 9', 4, 1125, 215, 50, 90], ['Table 10', 4, 1105, 350, 90, 50],
+  ['Table 11', 4, 1105, 465, 90, 50], ['Table 12', 4, 1105, 580, 90, 50],
+  ['Table 13', 4, 690, 565, 90, 50], ['Table 14', 4, 690, 435, 90, 50],
+  ['Table 15', 4, 825, 565, 90, 50], ['Table 16', 4, 825, 435, 90, 50],
 ];
+// Where tables sat before they were lined up; a table still exactly there moves to its aligned place.
+const BEFORE_ALIGNING = {
+  'Balcony 2': [148, 310], 'Balcony 4': [148, 610], 'Table 2': [358, 103], 'Table 3': [480, 106],
+  'Table 4': [953, 81], 'Table 5': [958, 247], 'Table 6': [964, 384], 'Table 7': [964, 465],
+  'Table 8': [1118, 95], 'Table 9': [1128, 215], 'Table 10': [1105, 355], 'Table 11': [1095, 465], 'Table 12': [1108, 585],
+  'Table 14': [680, 440], 'Table 15': [818, 560], 'Table 16': [823, 430],
+};
 // The couch is an L around a wider table; COUCH is that table's size.
 export const COUCH = { w: 136, h: 56, seats: 6 };
 // Every table of a kind is drawn the same size: a 2-seater is a small square with the two chairs
@@ -60,5 +68,11 @@ export function seedTables() {
         .run(COUCH.seats, Math.round(t.x + (t.w - COUCH.w) / 2), Math.round(t.y + (t.h - COUCH.h) / 2), COUCH.w, COUCH.h, t.id);
     }
     setSetting('tables_couch_l', '1');
+  }
+  // Line the tables up once; any table the owner has moved stays where they put it.
+  if (currentStore() === 'ambiente' && getSetting('tables_aligned', '') !== '1') {
+    const move = db.prepare('UPDATE floor_tables SET x = ?, y = ? WHERE active = 1 AND name = ? AND x = ? AND y = ?');
+    for (const [name, , x, y] of AMBIENTE_TABLES) if (BEFORE_ALIGNING[name]) move.run(x, y, name, ...BEFORE_ALIGNING[name]);
+    setSetting('tables_aligned', '1');
   }
 }

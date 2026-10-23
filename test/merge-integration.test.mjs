@@ -56,7 +56,8 @@ test('a floor seeded before the balcony grew gets Balcony 3 and 4 once, beside t
       CREATE TABLE floor_tables (id INTEGER PRIMARY KEY, name TEXT NOT NULL, seats INTEGER NOT NULL DEFAULT 4, x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
       INSERT INTO floor_tables (name, seats, x, y, w, h, created_at) VALUES
         ('Balcony 1', 4, 138, 160, 90, 50, '2026-10-18T00:00:00Z'), ('Balcony 2', 4, 300, 300, 90, 50, '2026-10-18T00:00:00Z'),
-        ('balcony 4', 2, 500, 500, 44, 44, '2026-10-18T00:00:00Z'), ('Couch', 3, 738, 140, 90, 50, '2026-10-18T00:00:00Z');`);
+        ('balcony 4', 2, 500, 500, 44, 44, '2026-10-18T00:00:00Z'), ('Couch', 3, 738, 140, 90, 50, '2026-10-18T00:00:00Z'),
+        ('Table 2', 2, 358, 103, 44, 44, '2026-10-18T00:00:00Z'), ('Table 3', 2, 400, 400, 44, 44, '2026-10-18T00:00:00Z');`);
     db.close();
   } });
   try {
@@ -67,5 +68,7 @@ test('a floor seeded before the balcony grew gets Balcony 3 and 4 once, beside t
     // The old 3-seat couch becomes the L-shaped couch for six, centred where it was.
     const couch = tables.find(t => t.name === 'Couch');
     assert.deepEqual([couch.seats, couch.x, couch.y, couch.w, couch.h], [6, 715, 137, 136, 56]);
+    // Tables still where the first plan put them are lined up; ones the owner moved stay put.
+    assert.deepEqual(['Table 2', 'Table 3'].map(n => { const t = tables.find(x => x.name === n); return [t.x, t.y]; }), [[316, 103], [400, 400]]);
   } finally { await server.close(); }
 });

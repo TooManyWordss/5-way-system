@@ -300,3 +300,26 @@ button,a,.fm-table,.chip,.view-tab{-webkit-tap-highlight-color:transparent;touch
 .fm-table.selected .fm-couch{stroke:var(--accent)}
 /* Kitchen slip on the device's own print screen: large, no prices, on its own page after the receipt. */
 @media print{.r-slip-table{font-size:15pt;font-weight:800}.r-slip-line{font-size:15pt;font-weight:800;margin:4px 0}.print-receipt>.r-slip:not(:first-child){break-before:page;margin-top:10mm}}
+
+/* Floor map: a quiet room with a dotted floor, soft wooden tables with a slight shadow, and rounded chairs. */
+.floor-map{--fm-wood:color-mix(in srgb,var(--surface-2) 78%,var(--brand) 22%);--fm-wood-edge:color-mix(in srgb,var(--brand) 55%,var(--surface-2))}
+.fm-room{fill:color-mix(in srgb,var(--surface) 85%,var(--surface-2));stroke:var(--border);stroke-width:2}
+.fm-floor-dot{fill:color-mix(in srgb,var(--muted) 30%,transparent)}
+.fm-decor .fm-balcony{fill:color-mix(in srgb,var(--ok) 7%,var(--surface));stroke:color-mix(in srgb,var(--ok) 35%,var(--border));stroke-width:2;stroke-dasharray:8 6}
+.fm-decor .fm-cashier{fill:color-mix(in srgb,var(--surface-2) 80%,var(--brand) 8%);stroke:var(--border);stroke-width:2}
+.fm-decor .fm-entrance{stroke:var(--accent);stroke-width:7;stroke-linecap:round}
+.fm-decor .fm-area-label{fill:var(--muted);font:700 15px var(--body);letter-spacing:.18em;text-anchor:middle}
+.fm-top{fill:var(--fm-wood);stroke:var(--fm-wood-edge);stroke-width:1.5}
+.fm-chair{fill:var(--surface);stroke:color-mix(in srgb,var(--muted) 70%,transparent);stroke-width:1.5}
+.fm-couch{fill:color-mix(in srgb,var(--fm-wood) 60%,var(--surface));stroke:var(--fm-wood-edge);stroke-width:1.5}
+.fm-table text{font-weight:800;letter-spacing:.02em}
+.fm-table:hover .fm-top{fill:color-mix(in srgb,var(--fm-wood) 88%,var(--accent))}
+.fm-table.busy .fm-top{fill:var(--warn);stroke:color-mix(in srgb,var(--warn) 70%,#000)}
+.fm-table.busy .fm-chair,.fm-table.busy .fm-couch{fill:color-mix(in srgb,var(--warn) 18%,var(--surface));stroke:var(--warn)}
+.fm-table.selected .fm-top{fill:var(--accent);stroke:var(--text);stroke-width:2.5}
+.fm-table.selected .fm-chair,.fm-table.selected .fm-couch{fill:color-mix(in srgb,var(--accent) 25%,var(--surface));stroke:var(--accent)}
+.fm-key{gap:6px 16px}
+.fm-key>span{display:inline-flex;align-items:center;gap:6px}
+.fm-key .fm-swatch{border-radius:5px;width:16px;height:12px;background:var(--fm-wood);border:1.5px solid var(--fm-wood-edge)}
+.fm-key .fm-swatch.busy{background:var(--warn);border-color:var(--warn)}
+.fm-key .fm-swatch.selected{background:var(--accent);border-color:var(--text)}
