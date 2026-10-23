@@ -10,11 +10,11 @@ fi
 # Keeps Android from putting Termux to sleep while the café is open.
 termux-wake-lock 2>/dev/null || true
 
-# This tablet's address on the café Wi-Fi, or on its own hotspot, for the kitchen's QR code.
+# This tablet's address on the café Wi-Fi, its own hotspot or Bluetooth tethering, for the kitchen's QR code.
 # Android hides it from the server, and some Android versions block one way of asking, so try several.
 find_ip() {
   local ip
-  for dev in wlan0 swlan0 ap0 wlan1; do
+  for dev in wlan0 swlan0 ap0 wlan1 bt-pan; do
     ip="$(ip -4 addr show "$dev" 2>/dev/null | grep -o 'inet [0-9.]*' | cut -d' ' -f2 | head -1)"
     [ -n "$ip" ] || ip="$(ifconfig "$dev" 2>/dev/null | grep -o 'inet [0-9.]*' | cut -d' ' -f2 | head -1)"
     [ -n "$ip" ] && { echo "$ip"; return; }
@@ -35,7 +35,7 @@ while true; do
   if [ -n "$IP" ]; then
     echo "  Kitchen tablet:      http://$IP:3000/kitchen   (or on the POS: More → Connect kitchen tablet)"
   else
-    echo "  Kitchen tablet:      this tablet has no Wi-Fi address yet. Connect it to the café Wi-Fi or turn on its hotspot."
+    echo "  Kitchen tablet:      this tablet has no network address yet. Connect it to the café Wi-Fi, or turn on its hotspot or Bluetooth tethering."
   fi
   echo
   node --env-file-if-exists=.env server.js
