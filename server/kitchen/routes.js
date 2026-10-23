@@ -1,16 +1,15 @@
 import { requireRole } from '../auth/sessions.js';
-import { currentStore } from '../core/config.js';
 import { db } from '../core/db.js';
 import { dayRange } from '../core/dates.js';
 import { attachItems, loadOrder } from '../sales/orders.js';
-import { app, io, storeBroadcast } from '../core/http.js';
+import { app, screenCounts, storeBroadcast } from '../core/http.js';
 
 // ---------- Kitchen ----------
 
 // How many kitchen screens are open right now. With none, the till prints a paper kitchen slip.
 // It sits under /api/pos because everything under /api/kitchen is for the kitchen screen only.
 app.get('/api/pos/kitchen-screens', (req, res) => {
-  res.json({ screens: io.sockets.adapter.rooms.get(`${currentStore()}:kitchen`)?.size ?? 0 });
+  res.json({ screens: screenCounts().kitchen });
 });
 
 // Kitchen display: today's tickets not yet finished, oldest first. Tickets left open on earlier days

@@ -4,10 +4,13 @@ import { dayRange, isDate, localDate, money } from '../core/dates.js';
 import { db } from '../core/db.js';
 import { getSetting, setSetting } from '../core/settings.js';
 import { dayReport, logActivity } from '../sales/orders.js';
-import { app, storeBroadcast } from '../core/http.js';
+import { app, screenCounts, storeBroadcast } from '../core/http.js';
 import { menuItemProblem } from '../menu/routes.js';
 
 // ---------- Admin: every day ----------
+
+// Which screens are open right now, for the owner's live panel.
+app.get('/api/admin/screens', (req, res) => res.json(screenCounts()));
 
 // One day's sales, receipts and activity log. Defaults to today.
 app.get('/api/admin/day', (req, res) => {

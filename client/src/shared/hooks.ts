@@ -47,7 +47,7 @@ export function useLive(onEvent?: (event: string, data: any) => void) {
     socket.on('connect', () => setState('Live'));
     socket.on('disconnect', () => setState('Offline'));
     socket.on('connect_error', (e) => { setState('Offline'); if (e.message === 'unauthorized') { clearCachedSessions(); location.href = storeUrl(`/login?role=${roleFromPath()}`); } });
-    const events = ['order.created','order.updated','ticket.updated','menu.requested','menu.updated','inventory.updated','inventory.low','security.updated','stores.updated','tables.updated','dining.updated'];
+    const events = ['order.created','order.updated','ticket.updated','menu.requested','menu.updated','inventory.updated','inventory.low','security.updated','stores.updated','tables.updated','dining.updated','screens.updated'];
     events.forEach((event) => socket.on(event, (data) => { if(['dining.updated','tables.updated','order.created','order.updated','ticket.updated'].includes(event)) window.dispatchEvent(new Event('dining.live')); onEvent?.(event, data); }));
     return () => { socket.disconnect(); };
   }, [onEvent]);

@@ -10,6 +10,9 @@ export const app = express();
 export const httpServer = createServer(app);
 export const io = new Server(httpServer);
 export const storeBroadcast = (roles) => io.to((Array.isArray(roles) ? roles : [roles]).map((role) => `${currentStore()}:${role}`));
+// How many of each screen are open right now in a store (each open screen is one live connection).
+export const SCREEN_ROLES = ['pos', 'barista', 'kitchen', 'inventory', 'admin'];
+export const screenCounts = (store = currentStore()) => Object.fromEntries(SCREEN_ROLES.map((role) => [role, io.sockets.adapter.rooms.get(`${store}:${role}`)?.size ?? 0]));
 export const notifyOwnerOverview = () => { if (currentStore() === 'rairock') io.to('ambiente:admin').emit('stores.updated'); };
 
 // Only set TRUST_PROXY when running behind a hosting proxy (it supplies the real client IP and HTTPS).

@@ -10,7 +10,7 @@ import { __dirname, PORT, storeContext } from './server/core/config.js';
 import { readSession } from './server/auth/sessions.js';
 import { databases } from './server/core/db.js';
 import './server/core/init.js';
-import { app, httpServer, io } from './server/core/http.js';
+import { app, httpServer, io, screenCounts } from './server/core/http.js';
 import './server/auth/routes.js';
 import './server/dining.js';
 import './server/passkeys/routes.js';
@@ -48,7 +48,13 @@ io.use((socket, next) => {
   socket.data.staffId = session.staff?.id ?? 0;
   next();
 });
-io.on('connection', (socket) => socket.join(`${socket.data.store}:${socket.data.role}`));
+// The owner's live panel hears whenever a screen opens or closes.
+io.on('connection', (socket) => {
+  const { store } = socket.data, tellOwner = () => io.to(`${store}:admin`).emit('screens.updated', screenCounts(store));
+  socket.join(`${store}:${socket.data.role}`);
+  tellOwner();
+  socket.on('disconnect', tellOwner);
+});
 
 // Close the database cleanly when stopped or restarted (npm run dev restarts on every edit),
 // so the next start never finds it locked.

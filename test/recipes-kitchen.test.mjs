@@ -110,6 +110,9 @@ test('sales take recipe stock out, edits and voids adjust it, and the kitchen ma
     const screen = connect(base, { extraHeaders: { cookie: kitchen }, auth: { store: 'ambiente' }, transports: ['websocket'] });
     await new Promise((resolve, reject) => { screen.on('connect', resolve); screen.on('connect_error', reject); });
     assert.deepEqual((await call('/api/pos/kitchen-screens', pos)).body, { screens: 1 });
+    // The owner's live panel sees which screens are open.
+    assert.deepEqual((await call('/api/admin/screens', owner)).body, { pos: 0, barista: 0, kitchen: 1, inventory: 0, admin: 0 });
+    assert.equal((await call('/api/admin/screens', pos)).status, 401);
     screen.close();
 
     // Tables: the sketch's layout is there, a party is seated, adds a second order, then bills out.
