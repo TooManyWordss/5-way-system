@@ -4,6 +4,17 @@ import { STORE } from '../shared/store';
 import type { DiningTable } from '../shared/types';
 import { CHAIR, chairsFor, couchFor, isCouch, minutesSince, tableLabel } from './tables';
 
+// A dropped table snaps into line: its centre moves onto the nearest row (rows are 120 apart, centred at
+// 165, 285 …) or another table's row or column, when it's within SNAP of one.
+const SNAP = 26, ROW_PITCH = 120, FIRST_ROW = 165;
+function snapped(t: DiningTable, x: number, y: number, tables: DiningTable[]) {
+  const others = tables.filter(o => o.id !== t.id), cx = x + t.w / 2, cy = y + t.h / 2;
+  const nearest = (value: number, lines: number[]) => lines.reduce((best, line) => Math.abs(line - value) < Math.abs(best - value) ? line : best, Infinity);
+  const row = FIRST_ROW + Math.round((cy - FIRST_ROW) / ROW_PITCH) * ROW_PITCH;
+  const sx = nearest(cx, others.map(o => o.x + o.w / 2)), sy = nearest(cy, [row, ...others.map(o => o.y + o.h / 2)]);
+  return { x: Math.round((Math.abs(sx - cx) <= SNAP ? sx : cx) - t.w / 2), y: Math.round((Math.abs(sy - cy) <= SNAP ? sy : cy) - t.h / 2) };
+}
+
 // The dining room as drawn by the owner. Tap a table to pick it; in admin, drag tables to move them.
 export function FloorMap({ tables, selectedId, onPick, onMove }: { tables: DiningTable[]; selectedId?: number | null; onPick: (t: DiningTable) => void; onMove?: (t: DiningTable, x: number, y: number) => void }) {
   const svg = useRef<SVGSVGElement>(null), ids = useId().replace(/[^a-zA-Z0-9]/g, ''), shadow = `fm-shadow-${ids}`, floor = `fm-floor-${ids}`;
@@ -11,7 +22,7 @@ export function FloorMap({ tables, selectedId, onPick, onMove }: { tables: Dinin
   const point = (e: React.PointerEvent) => { const p = svg.current!.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.current!.getScreenCTM()!.inverse()); };
   return <div className="floor-map"><svg ref={svg} viewBox="0 70 1280 640" role="group" aria-label="Floor map"
     onPointerMove={e => { if (!drag) return; const p = point(e); setDrag({ ...drag, x: Math.max(0, Math.min(1240, p.x - drag.dx)), y: Math.max(70, Math.min(690, p.y - drag.dy)), moved: true }); }}
-    onPointerUp={() => { if (!drag) return; const t = tables.find(x => x.id === drag.id); if (t && drag.moved) onMove?.(t, drag.x, drag.y); else if (t) onPick(t); setDrag(null); }}>
+    onPointerUp={() => { if (!drag) return; const t = tables.find(x => x.id === drag.id); if (t && drag.moved) { const p = snapped(t, drag.x, drag.y, tables); onMove?.(t, p.x, p.y); } else if (t) onPick(t); setDrag(null); }}>
     <defs>
       <filter id={shadow} x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="2" stdDeviation="2.2" floodColor="#3a2314" floodOpacity=".22" /></filter>
       <pattern id={floor} width="32" height="32" patternUnits="userSpaceOnUse"><circle cx="16" cy="16" r="1.4" className="fm-floor-dot" /></pattern>
